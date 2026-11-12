@@ -11,6 +11,8 @@ class SellerService {
     required this.description,
     required this.deliverables,
     required this.status,
+    this.sellerName = 'Arif Setiawan',
+    this.sellerDepartment = 'S1 Teknik Informatika',
     this.coverName,
     this.coverBytes,
     this.packageName = '',
@@ -27,6 +29,8 @@ class SellerService {
   final String description;
   final List<String> deliverables;
   final SellerServiceStatus status;
+  final String sellerName;
+  final String sellerDepartment;
   final String? coverName;
   final Uint8List? coverBytes;
   final String packageName;
@@ -42,6 +46,8 @@ class SellerService {
     String? description,
     List<String>? deliverables,
     SellerServiceStatus? status,
+    String? sellerName,
+    String? sellerDepartment,
     String? coverName,
     Uint8List? coverBytes,
     String? packageName,
@@ -56,6 +62,8 @@ class SellerService {
       description: description ?? this.description,
       deliverables: deliverables ?? this.deliverables,
       status: status ?? this.status,
+      sellerName: sellerName ?? this.sellerName,
+      sellerDepartment: sellerDepartment ?? this.sellerDepartment,
       coverName: coverName ?? this.coverName,
       coverBytes: coverBytes ?? this.coverBytes,
       packageName: packageName ?? this.packageName,
@@ -128,6 +136,8 @@ class SellerServiceStore extends ChangeNotifier {
     required String description,
     required List<String> deliverables,
     required SellerServiceStatus status,
+    String sellerName = 'Arif Setiawan',
+    String sellerDepartment = 'S1 Teknik Informatika',
     String? coverName,
     Uint8List? coverBytes,
     required String packageName,
@@ -144,6 +154,8 @@ class SellerServiceStore extends ChangeNotifier {
         description: description,
         deliverables: List.unmodifiable(deliverables),
         status: status,
+        sellerName: sellerName,
+        sellerDepartment: sellerDepartment,
         coverName: coverName,
         coverBytes: coverBytes,
         packageName: packageName,

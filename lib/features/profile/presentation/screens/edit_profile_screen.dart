@@ -1,8 +1,13 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme/app_colors.dart';
 import '../../../../app/routes/route_names.dart';
 import '../../../../core/widgets/app_back_button.dart';
+import '../../controllers/seller_profile_store.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key, this.isSeller = false});
@@ -24,7 +29,51 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _bioController = TextEditingController();
   final _nimController = TextEditingController();
   final _gpaController = TextEditingController();
-  final _skills = <String>['SPSS & R', 'Web Dev', 'Python', 'Skripsi'];
+  final _sellerProfile = SellerProfileStore.instance;
+  static const _defaultSkills = [
+    'Coding',
+    'Desain',
+    'Penulisan',
+    'Olah Data',
+    'Tutor',
+    'SPSS & R',
+    'Web Dev',
+    'Python',
+    'Skripsi',
+  ];
+  late final List<String> _availableSkills;
+  late final List<String> _selectedSkills;
+  late final List<String> _customSkills;
+  Uint8List? _photoBytes;
+  String? _photoName;
+  Uint8List? _studentCardBytes;
+  String? _studentCardName;
+  bool _isPickingPhoto = false;
+  bool _isPickingStudentCard = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final profile = _sellerProfile;
+    if (widget.isSeller) {
+      _nameController.text = profile.name;
+      _phoneController.text = profile.phone;
+      _universityController.text = profile.university;
+      _programController.text = profile.program;
+      _bioController.text = profile.bio;
+      _nimController.text = profile.nim;
+      _gpaController.text = profile.gpa;
+      _photoBytes = profile.photoBytes;
+      _photoName = profile.photoName;
+      _studentCardBytes = profile.studentCardBytes;
+      _studentCardName = profile.studentCardName;
+    }
+    _customSkills = [...profile.customSkills];
+    _availableSkills = [..._defaultSkills, ..._customSkills, ...profile.skills]
+        .toSet()
+        .toList();
+    _selectedSkills = [...profile.skills];
+  }
 
   @override
   void dispose() {
@@ -46,6 +95,141 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           'Perubahan belum tersimpan. Sinkronisasi menunggu backend.',
         ),
       ),
+    );
+  }
+
+  Future<void> _pickSellerPhoto() async {
+    if (_isPickingPhoto) return;
+    setState(() => _isPickingPhoto = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final file = result.files.single;
+      if (file.size > 5 * 1024 * 1024) {
+        _showMessage('Ukuran foto profil maksimal 5 MB.');
+        return;
+      }
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        _showMessage('Foto tidak dapat dibaca. Silakan pilih ulang.');
+        return;
+      }
+      setState(() {
+        _photoBytes = bytes;
+        _photoName = file.name;
+      });
+    } on Exception catch (error) {
+      if (mounted) _showMessage('Gagal memilih foto profil: $error');
+    } finally {
+      if (mounted) setState(() => _isPickingPhoto = false);
+    }
+  }
+
+  Future<void> _pickStudentCard() async {
+    if (_isPickingStudentCard) return;
+    setState(() => _isPickingStudentCard = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final file = result.files.single;
+      if (file.size > 10 * 1024 * 1024) {
+        _showMessage('Ukuran file KTM maksimal 10 MB.');
+        return;
+      }
+      final bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        _showMessage('File KTM tidak dapat dibaca. Silakan pilih ulang.');
+        return;
+      }
+      setState(() {
+        _studentCardBytes = bytes;
+        _studentCardName = file.name;
+      });
+    } on Exception catch (error) {
+      if (mounted) _showMessage('Gagal memilih file KTM: $error');
+    } finally {
+      if (mounted) setState(() => _isPickingStudentCard = false);
+    }
+  }
+
+  Future<void> _addCustomSkill() async {
+    final controller = TextEditingController();
+    final skill = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Tambah kategori / skill'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            hintText: 'Contoh: Ilustrasi Digital',
+          ),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Tambah'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    final value = skill?.trim();
+    if (value == null || value.isEmpty || !mounted) return;
+    final existing = _availableSkills.firstWhere(
+      (item) => item.toLowerCase() == value.toLowerCase(),
+      orElse: () => '',
+    );
+    setState(() {
+      final selected = existing.isEmpty ? value : existing;
+      if (existing.isEmpty) {
+        _availableSkills.add(value);
+        _customSkills.add(value);
+      }
+      if (!_selectedSkills.contains(selected)) _selectedSkills.add(selected);
+    });
+  }
+
+  void _saveSellerProfile() {
+    _sellerProfile.update(
+      name: _nameController.text.trim(),
+      phone: _phoneController.text.trim(),
+      university: _universityController.text.trim(),
+      program: _programController.text.trim(),
+      bio: _bioController.text.trim(),
+      nim: _nimController.text.trim(),
+      gpa: _gpaController.text.trim(),
+      photoBytes: _photoBytes,
+      photoName: _photoName,
+      studentCardBytes: _studentCardBytes,
+      studentCardName: _studentCardName,
+      skills: _selectedSkills,
+      customSkills: _customSkills,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Profil penjual berhasil diperbarui.')),
+    );
+    context.go(Routes.profil);
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
@@ -76,17 +260,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         Stack(
                           clipBehavior: Clip.none,
                           children: [
-                            const CircleAvatar(
+                            CircleAvatar(
                               radius: 34,
-                              backgroundColor: Color(0xFFDCEAFF),
-                              child: Text(
-                                'AS',
-                                style: TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                              backgroundColor: const Color(0xFFDCEAFF),
+                              backgroundImage: _photoBytes == null
+                                  ? null
+                                  : MemoryImage(_photoBytes!),
+                              child: _photoBytes == null
+                                  ? const Text(
+                                      'AS',
+                                      style: TextStyle(
+                                        color: AppColors.primary,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    )
+                                  : null,
                             ),
                             Positioned(
                               right: -2,
@@ -98,7 +287,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   padding: EdgeInsets.zero,
                                   iconSize: 14,
                                   color: Colors.white,
-                                  onPressed: _showBackendNotice,
+                                  onPressed: widget.isSeller
+                                      ? _pickSellerPhoto
+                                      : _showBackendNotice,
                                   icon: const Icon(Icons.add),
                                 ),
                               ),
@@ -107,7 +298,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                         const SizedBox(height: 8),
                         TextButton(
-                          onPressed: _showBackendNotice,
+                          onPressed: widget.isSeller
+                              ? _pickSellerPhoto
+                              : _showBackendNotice,
                           child: const Text('Ubah Foto Profil'),
                         ),
                       ],
@@ -130,7 +323,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 width: double.infinity,
                 height: 48,
                 child: FilledButton(
-                  onPressed: _showBackendNotice,
+                  onPressed: widget.isSeller
+                      ? _saveSellerProfile
+                      : _showBackendNotice,
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
@@ -244,10 +439,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
         const SizedBox(height: 18),
         const _SectionHeading('Verifikasi Identitas Mahasiswa'),
-        const _VerificationCard(),
+        _VerificationCard(
+          fileName: _studentCardName,
+          isPicking: _isPickingStudentCard,
+          onTap: _pickStudentCard,
+        ),
         const SizedBox(height: 18),
         const _SectionHeading('Kategori / Skill Utama'),
-        _SkillList(skills: _skills),
+        _SkillList(
+          availableSkills: _availableSkills,
+          selectedSkills: _selectedSkills,
+          onSkillToggled: (skill) {
+            setState(() {
+              if (_selectedSkills.contains(skill)) {
+                _selectedSkills.remove(skill);
+              } else {
+                _selectedSkills.add(skill);
+              }
+            });
+          },
+          onAddSkill: _addCustomSkill,
+        ),
       ],
     );
   }
@@ -260,6 +472,7 @@ class _BackendNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isSeller) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -366,55 +579,93 @@ class _ProfileField extends StatelessWidget {
 }
 
 class _VerificationCard extends StatelessWidget {
-  const _VerificationCard();
+  const _VerificationCard({
+    required this.fileName,
+    required this.isPicking,
+    required this.onTap,
+  });
+
+  final String? fileName;
+  final bool isPicking;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: isPicking ? null : onTap,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.badge_outlined, color: AppColors.textSecondary),
-          SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Kartu Tanda Mahasiswa (KTM)',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                SizedBox(height: 3),
-                Text(
-                  'Unggah dan verifikasi menunggu backend',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 10,
-                  ),
-                ),
-              ],
-            ),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
           ),
-          Icon(Icons.upload_file_outlined, color: AppColors.primary, size: 20),
-        ],
+          child: Row(
+            children: [
+              const Icon(Icons.badge_outlined, color: AppColors.textSecondary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Kartu Tanda Mahasiswa (KTM)',
+                      style: TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      isPicking
+                          ? 'Membuka file...'
+                          : fileName ?? 'Pilih foto atau PDF, maksimal 10 MB',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              isPicking
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(
+                      Icons.upload_file_outlined,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 class _SkillList extends StatelessWidget {
-  const _SkillList({required this.skills});
+  const _SkillList({
+    required this.availableSkills,
+    required this.selectedSkills,
+    required this.onSkillToggled,
+    required this.onAddSkill,
+  });
 
-  final List<String> skills;
+  final List<String> availableSkills;
+  final List<String> selectedSkills;
+  final ValueChanged<String> onSkillToggled;
+  final VoidCallback onAddSkill;
 
   @override
   Widget build(BuildContext context) {
@@ -430,18 +681,41 @@ class _SkillList extends StatelessWidget {
         spacing: 6,
         runSpacing: 6,
         children: [
-          for (final skill in skills)
-            Chip(
+          for (final skill in availableSkills)
+            FilterChip(
               label: Text(skill),
+              selected: selectedSkills.contains(skill),
+              onSelected: (_) => onSkillToggled(skill),
               visualDensity: VisualDensity.compact,
-              backgroundColor: const Color(0xFFEFF6FF),
-              side: const BorderSide(color: Color(0xFFBFDBFE)),
-              labelStyle: const TextStyle(
-                color: AppColors.primary,
+              backgroundColor: AppColors.surface,
+              selectedColor: const Color(0xFFEFF6FF),
+              side: BorderSide(
+                color: selectedSkills.contains(skill)
+                    ? const Color(0xFFBFDBFE)
+                    : AppColors.border,
+              ),
+              labelStyle: TextStyle(
+                color: selectedSkills.contains(skill)
+                    ? AppColors.primary
+                    : AppColors.textSecondary,
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
+              showCheckmark: false,
             ),
+          ActionChip(
+            avatar: const Icon(Icons.add, size: 15),
+            label: const Text('Tambah sendiri'),
+            onPressed: onAddSkill,
+            visualDensity: VisualDensity.compact,
+            backgroundColor: AppColors.surface,
+            side: const BorderSide(color: AppColors.border),
+            labelStyle: const TextStyle(
+              color: AppColors.primary,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

@@ -1,8 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
+import '../../profile/controllers/seller_service_store.dart';
 import '../../profile/controllers/user_role_controller.dart';
 import '../controllers/chat_activity_store.dart';
 import 'order_payment.dart';
@@ -16,10 +20,28 @@ class BerandaScreen extends StatefulWidget {
 
 class _BerandaScreenState extends State<BerandaScreen> {
   final _searchController = TextEditingController();
+  final _sellerServiceStore = SellerServiceStore.instance;
   String _selectedCategory = 'Semua';
   String _searchQuery = '';
 
-  static const _categories = ['Semua', 'Coding', 'Desain', 'Tugas', 'Tutor', 'Ketik'];
+  @override
+  void initState() {
+    super.initState();
+    _sellerServiceStore.addListener(_onSellerServicesChanged);
+  }
+
+  void _onSellerServicesChanged() {
+    if (mounted) setState(() {});
+  }
+
+  static const _categories = [
+    'Semua',
+    'Coding',
+    'Desain',
+    'Tugas',
+    'Tutor',
+    'Ketik'
+  ];
   static const _services = [
     _Service(
       id: 'web-react',
@@ -61,30 +83,62 @@ class _BerandaScreenState extends State<BerandaScreen> {
 
   @override
   void dispose() {
+    _sellerServiceStore.removeListener(_onSellerServicesChanged);
     _searchController.dispose();
     super.dispose();
   }
 
+  _Service _serviceFromSeller(SellerService service) {
+    final (color, iconColor, icon) = switch (service.category.toLowerCase()) {
+      'coding' || 'pengembangan web & aplikasi' => (
+          const Color(0xFFEEF5FF),
+          AppColors.primary,
+          Icons.code,
+        ),
+      'desain' || 'desain grafis & branding' => (
+          const Color(0xFFFFF3C4),
+          const Color(0xFFF59E0B),
+          Icons.palette,
+        ),
+      _ => (
+          const Color(0xFFDCFCE7),
+          const Color(0xFF16A34A),
+          Icons.work_outline,
+        ),
+    };
+
+    return _Service(
+      id: service.id,
+      title: service.title,
+      seller: '${service.sellerName} (${service.sellerDepartment})',
+      rating: service.rating,
+      reviews: 0,
+      price: Formatters.currency(service.price),
+      category: service.category,
+      color: color,
+      iconColor: iconColor,
+      icon: icon,
+      coverBytes: service.coverBytes,
+    );
+  }
+
   void _openNotifications() {
-    final role = UserRoleController.instance.selectedRole;
-    final orders = BuyerOrderStore.instance;
-    if (role == UserRole.penjual && orders.sellerUnreadCount > 0) {
-      context.go(Routes.incomingOrders);
-    } else if (role == UserRole.pembeli && orders.buyerUnreadCount > 0) {
-      context.go(Routes.statusPesanan);
-    } else {
-      context.go(Routes.chat);
-    }
+    context.push(Routes.notifications);
   }
 
   @override
   Widget build(BuildContext context) {
-    final visibleServices = _services.where((service) {
+    final allServices = [
+      ..._services,
+      ..._sellerServiceStore.services
+          .where((service) => service.status == SellerServiceStatus.active)
+          .map(_serviceFromSeller),
+    ];
+    final visibleServices = allServices.where((service) {
       final matchesCategory =
           _selectedCategory == 'Semua' || service.category == _selectedCategory;
       final query = _searchQuery.toLowerCase();
-      final matchesSearch =
-          query.isEmpty ||
+      final matchesSearch = query.isEmpty ||
           service.title.toLowerCase().contains(query) ||
           service.seller.toLowerCase().contains(query) ||
           service.category.toLowerCase().contains(query);
@@ -227,6 +281,70 @@ class _BerandaScreenState extends State<BerandaScreen> {
           ],
         ),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(right: 4, bottom: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 142,
+              height: 42,
+              child: FilledButton(
+                onPressed: () {},
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryDark,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: const StadiumBorder(),
+                  elevation: 2,
+                ),
+                child: const Text(
+                  'Tanya Rekomendasi',
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 7),
+            SizedBox(
+              width: 50,
+              height: 50,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF3B82F6), AppColors.primary],
+                  ),
+                  border: Border.all(color: const Color(0xFF8CB8FF), width: 2),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x332563EB),
+                      blurRadius: 5,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    onTap: () {},
+                    customBorder: const CircleBorder(),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -286,11 +404,8 @@ class _BrandHeader extends StatelessWidget {
           ]),
           builder: (context, _) {
             final role = UserRoleController.instance.selectedRole;
-            final orderStore = BuyerOrderStore.instance;
-            final orderCount = role == UserRole.penjual
-                ? orderStore.sellerUnreadCount
-                : orderStore.buyerUnreadCount;
-            final count = orderCount +
+            final count =
+                BuyerOrderStore.instance.unreadNotificationCount(role) +
                 ChatActivityStore.instance.unreadCount(role);
 
             return IconButton(
@@ -377,14 +492,33 @@ class _ServiceCard extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: service.color,
-                  borderRadius: BorderRadius.circular(10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: service.coverBytes == null
+                      ? ColoredBox(
+                          color: service.color,
+                          child: Icon(
+                            service.icon,
+                            color: service.iconColor,
+                            size: 30,
+                          ),
+                        )
+                      : Image.memory(
+                          service.coverBytes!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => ColoredBox(
+                            color: service.color,
+                            child: Icon(
+                              service.icon,
+                              color: service.iconColor,
+                              size: 30,
+                            ),
+                          ),
+                        ),
                 ),
-                child: Icon(service.icon, color: service.iconColor, size: 30),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -454,6 +588,7 @@ class _Service {
     required this.color,
     required this.iconColor,
     required this.icon,
+    this.coverBytes,
   });
 
   final String id;
@@ -466,4 +601,5 @@ class _Service {
   final Color color;
   final Color iconColor;
   final IconData icon;
+  final Uint8List? coverBytes;
 }

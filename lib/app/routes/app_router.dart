@@ -17,6 +17,7 @@ import '../../features/auth/presentation/forgot_password_screen.dart';
 import '../../features/dashboard/presentation/beranda_screen.dart';
 import '../../features/dashboard/presentation/chat_screen.dart';
 import '../../features/dashboard/presentation/chat_detail_screen.dart';
+import '../../features/dashboard/presentation/ai_recommendation_chat_screen.dart';
 import '../../features/dashboard/presentation/service_detail_screen.dart';
 import '../../features/dashboard/presentation/seller_profile_screen.dart';
 import '../../features/dashboard/presentation/order_checkout_screen.dart';
@@ -24,6 +25,7 @@ import '../../features/dashboard/presentation/payment_screen.dart';
 import '../../features/dashboard/presentation/service_catalog.dart';
 import '../../features/dashboard/presentation/order_payment.dart';
 import '../../features/dashboard/presentation/payment_success_screen.dart';
+import '../../features/dashboard/presentation/notifications_screen.dart';
 
 // Import Profile Main Screen & Detail Screens
 import '../../features/profile/presentation/profile_screen.dart';
@@ -60,6 +62,10 @@ class AppRouter {
       GoRoute(
         path: Routes.forgotPassword,
         builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: Routes.aiRecommendation,
+        builder: (context, state) => const AiRecommendationChatScreen(),
       ),
 
       // 2. MAIN SHELL (MEMILIKI BOTTOM NAVIGATION BAR)
@@ -141,6 +147,10 @@ class AppRouter {
       GoRoute(
         path: Routes.statusPesanan,
         builder: (context, state) => const StatusPesananScreen(),
+      ),
+      GoRoute(
+        path: Routes.notifications,
+        builder: (context, state) => const NotificationsScreen(),
       ),
       GoRoute(
         path: Routes.helpCenter,

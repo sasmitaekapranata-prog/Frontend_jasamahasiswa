@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -20,13 +21,86 @@ class OrderCheckoutScreen extends StatefulWidget {
 class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
   final _formKey = GlobalKey<FormState>();
   final _briefController = TextEditingController();
+  static const _maxAttachmentBytes = 25 * 1024 * 1024;
+  static const _attachmentExtensions = [
+    'pdf',
+    'doc',
+    'docx',
+    'zip',
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+  ];
+  final List<OrderAttachment> _attachments = [];
   String _paymentMethod = 'QRIS';
+  bool _isPickingAttachments = false;
   static const _serviceFee = 5000;
 
   @override
   void dispose() {
     _briefController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAttachments() async {
+    if (_isPickingAttachments) return;
+    setState(() => _isPickingAttachments = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: _attachmentExtensions,
+        allowMultiple: true,
+        withData: true,
+      );
+      if (result == null || !mounted) return;
+
+      final selected = <OrderAttachment>[];
+      for (final file in result.files) {
+        final extension = file.extension?.toLowerCase();
+        if (extension == null || !_attachmentExtensions.contains(extension)) {
+          _showMessage('Format file ${file.name} belum didukung.');
+          continue;
+        }
+        if (file.size > _maxAttachmentBytes) {
+          _showMessage('${file.name} melebihi batas ukuran 25 MB.');
+          continue;
+        }
+        final bytes = file.bytes;
+        if (bytes == null || bytes.isEmpty) {
+          _showMessage('File ${file.name} tidak dapat dibaca. Silakan pilih ulang.');
+          continue;
+        }
+        selected.add(
+          OrderAttachment(name: file.name, bytes: bytes, size: file.size),
+        );
+      }
+
+      if (selected.isNotEmpty && mounted) {
+        setState(() {
+          for (final attachment in selected) {
+            if (!_attachments.any((item) => item.name == attachment.name)) {
+              _attachments.add(attachment);
+            }
+          }
+        });
+      }
+    } on Exception catch (error) {
+      if (mounted) _showMessage('Gagal memilih file: $error');
+    } finally {
+      if (mounted) setState(() => _isPickingAttachments = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).ceil()} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   @override
@@ -82,18 +156,24 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Fitur unggah file belum tersedia.'),
-                ),
-              ),
-              icon: const Icon(Icons.add, size: 20),
-              label: const Column(
+              onPressed: _isPickingAttachments ? null : _pickAttachments,
+              icon: _isPickingAttachments
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add, size: 20),
+              label: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Unggah File / Bahan (PDF, DOCX, ZIP)'),
                   Text(
-                    'Maksimal ukuran file 25MB',
+                    _isPickingAttachments
+                        ? 'Membuka file...'
+                        : 'Unggah File / Foto',
+                  ),
+                  const Text(
+                    'PDF, DOCX, ZIP, JPG, PNG • Maksimal 25 MB per file',
                     style:
                         TextStyle(fontSize: 9, color: AppColors.textSecondary),
                   ),
@@ -111,6 +191,18 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
                 ),
               ),
             ),
+            if (_attachments.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              for (var index = 0; index < _attachments.length; index++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _AttachmentTile(
+                    attachment: _attachments[index],
+                    sizeLabel: _formatFileSize(_attachments[index].size),
+                    onRemove: () => setState(() => _attachments.removeAt(index)),
+                  ),
+                ),
+            ],
             const SizedBox(height: 18),
             const _FieldLabel('METODE PEMBAYARAN'),
             const SizedBox(height: 7),
@@ -153,6 +245,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
                     brief: _briefController.text.trim(),
                     paymentMethod: _paymentMethod,
                     total: service.price + _serviceFee,
+                    attachments: List.unmodifiable(_attachments),
                   ),
                 );
               },
@@ -227,6 +320,86 @@ class _ServiceSummary extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentTile extends StatelessWidget {
+  const _AttachmentTile({
+    required this.attachment,
+    required this.sizeLabel,
+    required this.onRemove,
+  });
+
+  final OrderAttachment attachment;
+  final String sizeLabel;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        children: [
+          if (attachment.isImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.memory(
+                attachment.bytes,
+                width: 34,
+                height: 34,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.image_outlined,
+                  color: AppColors.primary,
+                  size: 22,
+                ),
+              ),
+            )
+          else
+            const Icon(
+              Icons.insert_drive_file_outlined,
+              color: AppColors.primary,
+              size: 22,
+            ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attachment.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  sizeLabel,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 9,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            tooltip: 'Hapus ${attachment.name}',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 17),
           ),
         ],
       ),

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../app/routes/route_names.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/widgets/app_back_button.dart';
+import '../../controllers/seller_profile_store.dart';
 import '../../controllers/seller_service_store.dart';
 
 class CreateServiceScreen extends StatefulWidget {
@@ -161,6 +162,8 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
       description: _descriptionController.text.trim(),
       deliverables: deliverables,
       status: status,
+      sellerName: SellerProfileStore.instance.name,
+      sellerDepartment: SellerProfileStore.instance.program,
       coverName: _coverName,
       coverBytes: _coverBytes,
       packageName: _packageController.text.trim(),
@@ -555,7 +558,7 @@ class _CoverPicker extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                fileName ?? 'Sampul terpilih',
+                                '${fileName ?? 'Sampul terpilih'} • Ketuk untuk mengganti foto',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(

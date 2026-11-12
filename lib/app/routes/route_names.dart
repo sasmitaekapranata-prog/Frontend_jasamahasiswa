@@ -8,6 +8,7 @@ class Routes {
   static const String beranda = '/beranda';
   static const String chat = '/chat';
   static const String chatDetail = '/chat-detail';
+  static const String aiRecommendation = '/ai-recommendation';
   static const String profil = '/profil';
 
   // Detail & Action Screens
@@ -21,6 +22,7 @@ class Routes {
   static const String incomingOrders = '/incoming-orders';
   static const String manageServices = '/manage-services';
   static const String statusPesanan = '/status-pesanan';
+  static const String notifications = '/notifications';
   static const String withdrawSaldo = '/withdraw-saldo';
   static const String helpCenter = '/help-center';
 }

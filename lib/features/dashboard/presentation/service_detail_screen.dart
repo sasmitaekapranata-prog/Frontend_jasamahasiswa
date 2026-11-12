@@ -189,6 +189,51 @@ class _ServiceIllustration extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (service.coverBytes case final bytes?) {
+      return SizedBox(
+        height: 220,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.memory(
+              bytes,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => ColoredBox(
+                color: service.color,
+                child: Icon(
+                  service.icon,
+                  color: service.iconColor,
+                  size: 56,
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    service.category.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       height: 156,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),

@@ -3,7 +3,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
+import '../../dashboard/controllers/chat_activity_store.dart';
 import '../../dashboard/presentation/order_payment.dart';
+import '../controllers/seller_profile_store.dart';
+import '../controllers/seller_wallet_store.dart';
 import '../controllers/user_role_controller.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -108,23 +112,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sellerProfile = SellerProfileStore.instance;
+    final sellerWallet = SellerWalletStore.instance;
     return Scaffold(
       body: SafeArea(
         child: AnimatedBuilder(
           animation: Listenable.merge([
             _roleController,
             BuyerOrderStore.instance,
+            ChatActivityStore.instance,
+            sellerProfile,
+            sellerWallet,
           ]),
           builder: (context, _) {
             final isSeller = _roleController.selectedRole == UserRole.penjual;
             final orderStore = BuyerOrderStore.instance;
-
+            final notificationCount =
+                orderStore.unreadNotificationCount(_roleController.selectedRole) +
+                ChatActivityStore.instance
+                    .unreadCount(_roleController.selectedRole);
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
                 const _BrandHeader(),
                 const SizedBox(height: 14),
-                const _ProfileCard(isSeller: false),
+                _ProfileCard(
+                  isSeller: isSeller,
+                  profile: sellerProfile,
+                ),
                 const SizedBox(height: 10),
                 _RoleSwitcher(
                   isSeller: isSeller,
@@ -133,6 +148,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 12),
                 if (isSeller) ...[
                   _BalanceCard(
+                    balance: sellerWallet.balance,
+                    weeklyIncome: sellerWallet.incomeLastSevenDays,
+                    unreadNotifications: notificationCount,
+                    onNotifications: () => context.push(Routes.notifications),
                     onWithdraw: () => context.go(Routes.withdrawSaldo),
                   ),
                   const SizedBox(height: 10),
@@ -295,9 +314,13 @@ class _BrandIcon extends StatelessWidget {
 }
 
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.isSeller});
+  const _ProfileCard({
+    required this.isSeller,
+    required this.profile,
+  });
 
   final bool isSeller;
+  final SellerProfileStore profile;
 
   @override
   Widget build(BuildContext context) {
@@ -306,24 +329,34 @@ class _ProfileCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               radius: 23,
               backgroundColor: Color(0xFFDCEAFF),
-              child: Text(
-                'AS',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              backgroundImage: profile.photoBytes == null
+                  ? null
+                  : MemoryImage(profile.photoBytes!),
+              child: profile.photoBytes == null
+                  ? Text(
+                      profile.name
+                          .split(RegExp(r'\s+'))
+                          .where((part) => part.isNotEmpty)
+                          .take(2)
+                          .map((part) => part[0].toUpperCase())
+                          .join(),
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(width: 11),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Arif Setiawan',
+                Text(
+                  profile.name,
                   style: TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 13,
@@ -331,8 +364,8 @@ class _ProfileCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 3),
-                const Text(
-                  'S1 Teknik Informatika',
+                Text(
+                  profile.program,
                   style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 11,
@@ -439,8 +472,18 @@ class _RoleButton extends StatelessWidget {
 }
 
 class _BalanceCard extends StatelessWidget {
-  const _BalanceCard({required this.onWithdraw});
+  const _BalanceCard({
+    required this.balance,
+    required this.weeklyIncome,
+    required this.unreadNotifications,
+    required this.onNotifications,
+    required this.onWithdraw,
+  });
 
+  final int balance;
+  final int weeklyIncome;
+  final int unreadNotifications;
+  final VoidCallback onNotifications;
   final VoidCallback onWithdraw;
 
   @override
@@ -453,7 +496,7 @@ class _BalanceCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -465,19 +508,19 @@ class _BalanceCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                SizedBox(height: 5),
+                const SizedBox(height: 5),
                 Text(
-                  'Rp 1.450.000',
-                  style: TextStyle(
+                  Formatters.currency(balance),
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  '▲ +Rp 250.000 minggu ini',
-                  style: TextStyle(
+                  '▲ +${Formatters.currency(weeklyIncome)} minggu ini',
+                  style: const TextStyle(
                     color: Color(0xFF34D399),
                     fontSize: 9,
                     fontWeight: FontWeight.w600,
@@ -487,17 +530,69 @@ class _BalanceCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FilledButton(
-            onPressed: onWithdraw,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              textStyle: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 38,
+                height: 32,
+                child: IconButton(
+                  tooltip: 'Notifikasi',
+                  onPressed: onNotifications,
+                  padding: EdgeInsets.zero,
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(
+                        Icons.notifications_none,
+                        color: Colors.white,
+                        size: 19,
+                      ),
+                      if (unreadNotifications > 0)
+                        Positioned(
+                          top: -5,
+                          right: -6,
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 14,
+                              minHeight: 14,
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            decoration: const BoxDecoration(
+                              color: AppColors.danger,
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              unreadNotifications > 9
+                                  ? '9+'
+                                  : '$unreadNotifications',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 7,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-            child: const Text('Tarik Saldo'),
+              const SizedBox(height: 3),
+              FilledButton(
+                onPressed: onWithdraw,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  textStyle: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                child: const Text('Tarik Saldo'),
+              ),
+            ],
           ),
         ],
       ),

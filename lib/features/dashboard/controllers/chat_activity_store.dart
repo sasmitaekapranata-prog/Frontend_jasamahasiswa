@@ -13,6 +13,8 @@ class ChatActivityStore extends ChangeNotifier {
   };
 
   int unreadCount(UserRole role) => _unreadChats[role]?.length ?? 0;
+  List<String> unreadChatIds(UserRole role) =>
+      List.unmodifiable(_unreadChats[role] ?? const <String>{});
 
   bool isUnread(UserRole role, String chatId) =>
       _unreadChats[role]?.contains(chatId.toLowerCase()) ?? false;
@@ -28,6 +30,13 @@ class ChatActivityStore extends ChangeNotifier {
     if (chats.add(chatId.toLowerCase())) {
       notifyListeners();
     }
+  }
+
+  void markAllRead(UserRole role) {
+    final chats = _unreadChats[role];
+    if (chats == null || chats.isEmpty) return;
+    chats.clear();
+    notifyListeners();
   }
 
   void markCounterpartUnread(UserRole senderRole, String chatId) {
