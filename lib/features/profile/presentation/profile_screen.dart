@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../dashboard/presentation/order_payment.dart';
 import '../controllers/user_role_controller.dart';
+// Tambahkan import AuthService Anda di sini
+import '../../auth/services/auth_service.dart'; 
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,6 +19,42 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _roleController = UserRoleController.instance;
+  
+  // 1. Tambahkan variabel untuk menampung nama dan inisial
+  String _nama = 'Memuat...';
+  String _inisial = '-';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData(); // Panggil fungsi saat layar dibuka
+  }
+
+  // 2. Fungsi mengambil data dari SharedPreferences
+  Future<void> _loadUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? userDataString = prefs.getString('user_data');
+
+    if (userDataString != null) {
+      final userData = jsonDecode(userDataString);
+      final nama = userData['nama'] ?? 'Arif Setiawan';
+      
+      // Logika membuat inisial (misal: "Alfa Fatimatuzahro" jadi "AF")
+      List<String> nameParts = nama.split(' ');
+      String inisial = '';
+      if (nameParts.isNotEmpty) {
+        inisial += nameParts[0][0]; // Huruf pertama kata pertama
+        if (nameParts.length > 1) {
+          inisial += nameParts[1][0]; // Huruf pertama kata kedua
+        }
+      }
+
+      setState(() {
+        _nama = nama;
+        _inisial = inisial.toUpperCase();
+      });
+    }
+  }
 
   Future<void> _confirmSignOut() async {
     final shouldSignOut = await showDialog<bool>(
@@ -101,8 +141,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
 
+    // 3. Panggil AuthService.logout() di sini jika user klik "Ya"
     if (shouldSignOut == true && mounted) {
-      context.go(Routes.landing);
+      await AuthService().logout(); // Menghapus token dari memori
+      if (mounted) {
+        context.go(Routes.login); // Ubah Routes.landing menjadi Routes.login agar diarahkan ke login
+      }
     }
   }
 
@@ -124,7 +168,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 const _BrandHeader(),
                 const SizedBox(height: 14),
-                const _ProfileCard(isSeller: false),
+                // 4. Kirim variabel _nama dan _inisial ke dalam widget _ProfileCard
+                _ProfileCard(isSeller: isSeller, nama: _nama, inisial: _inisial),
                 const SizedBox(height: 10),
                 _RoleSwitcher(
                   isSeller: isSeller,
@@ -294,10 +339,17 @@ class _BrandIcon extends StatelessWidget {
   }
 }
 
+// 5. Modifikasi _ProfileCard agar menerima parameter nama dan inisial
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.isSeller});
+  const _ProfileCard({
+    required this.isSeller,
+    required this.nama,
+    required this.inisial,
+  });
 
   final bool isSeller;
+  final String nama;
+  final String inisial;
 
   @override
   Widget build(BuildContext context) {
@@ -306,12 +358,12 @@ class _ProfileCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            const CircleAvatar(
+            CircleAvatar(
               radius: 23,
-              backgroundColor: Color(0xFFDCEAFF),
+              backgroundColor: const Color(0xFFDCEAFF),
               child: Text(
-                'AS',
-                style: TextStyle(
+                inisial, // Menggunakan inisial dinamis
+                style: const TextStyle(
                   color: AppColors.primary,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -322,9 +374,9 @@ class _ProfileCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Arif Setiawan',
-                  style: TextStyle(
+                Text(
+                  nama, // Menggunakan nama dinamis
+                  style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,

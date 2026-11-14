@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
+import '../../../core/utils/api_config.dart';
 import '../../profile/controllers/user_role_controller.dart';
 import '../controllers/chat_activity_store.dart';
 import 'order_payment.dart';
@@ -19,45 +22,28 @@ class _BerandaScreenState extends State<BerandaScreen> {
   String _selectedCategory = 'Semua';
   String _searchQuery = '';
 
+  // 1. Variabel penampung data dinamis dari Backend
+  List<ServiceItem> _services = [];
+  bool _isLoading = true;
+
   static const _categories = ['Semua', 'Coding', 'Desain', 'Tugas', 'Tutor', 'Ketik'];
-  static const _services = [
-    _Service(
-      id: 'web-react',
-      title: 'Jasa Web React & UI Tailwind',
-      seller: 'Arief (Informatika)',
-      rating: '4.9',
-      reviews: 24,
-      price: 'Rp50.000',
-      category: 'Coding',
-      color: Color(0xFFEEF5FF),
-      iconColor: AppColors.primary,
-      icon: Icons.code,
-    ),
-    _Service(
-      id: 'desain-ppt',
-      title: 'Desain PPT & Poster Aesthetic',
-      seller: 'Alval (DKV)',
-      rating: '5.0',
-      reviews: 18,
-      price: 'Rp25.000',
-      category: 'Desain',
-      color: Color(0xFFFFF3C4),
-      iconColor: Color(0xFFF59E0B),
-      icon: Icons.palette,
-    ),
-    _Service(
-      id: 'olah-data',
-      title: 'Olah Data SPSS & Skripsi',
-      seller: 'Nabila (Statistika)',
-      rating: '4.8',
-      reviews: 30,
-      price: 'Rp75.000',
-      category: 'Tugas',
-      color: Color(0xFFDCFCE7),
-      iconColor: Color(0xFF16A34A),
-      icon: Icons.insert_chart,
-    ),
-  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchServices(); // Ambil data saat halaman dimuat
+  }
+
+  // 2. Fungsi untuk mengambil data dari Backend
+  Future<void> _fetchServices() async {
+    final services = await HomeService().getServices();
+    if (mounted) {
+      setState(() {
+        _services = services;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -79,16 +65,13 @@ class _BerandaScreenState extends State<BerandaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 3. Logika Filter Pencarian
     final visibleServices = _services.where((service) {
-      final matchesCategory =
-          _selectedCategory == 'Semua' || service.category == _selectedCategory;
       final query = _searchQuery.toLowerCase();
-      final matchesSearch =
-          query.isEmpty ||
-          service.title.toLowerCase().contains(query) ||
-          service.seller.toLowerCase().contains(query) ||
-          service.category.toLowerCase().contains(query);
-      return matchesCategory && matchesSearch;
+      final matchesSearch = query.isEmpty ||
+          service.judul.toLowerCase().contains(query) ||
+          service.namaPenjual.toLowerCase().contains(query);
+      return matchesSearch;
     }).toList();
 
     return Scaffold(
@@ -202,7 +185,14 @@ class _BerandaScreenState extends State<BerandaScreen> {
             const SizedBox(height: 16),
             const _SectionTitle('REKOMENDASI JASA'),
             const SizedBox(height: 8),
-            if (visibleServices.isEmpty)
+
+            // 4. Menampilkan Status Loading atau Daftar Jasa
+            if (_isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 28),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (visibleServices.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 28),
                 child: Center(
@@ -364,8 +354,33 @@ class _SectionTitle extends StatelessWidget {
 class _ServiceCard extends StatelessWidget {
   const _ServiceCard({required this.service, required this.onTap});
 
-  final _Service service;
+  final ServiceItem service;
   final VoidCallback onTap;
+
+  IconData _getDynamicIcon() {
+    final title = service.judul.toLowerCase();
+    if (title.contains('web') || title.contains('coding') || title.contains('react')) {
+      return Icons.code;
+    }
+    if (title.contains('desain') || title.contains('ppt') || title.contains('poster')) {
+      return Icons.palette;
+    }
+    return Icons.insert_chart;
+  }
+
+  Color _getDynamicIconColor() {
+    final title = service.judul.toLowerCase();
+    if (title.contains('web') || title.contains('coding')) return AppColors.primary;
+    if (title.contains('desain') || title.contains('ppt')) return const Color(0xFFF59E0B);
+    return const Color(0xFF16A34A);
+  }
+
+  Color _getDynamicBgColor() {
+    final title = service.judul.toLowerCase();
+    if (title.contains('web') || title.contains('coding')) return const Color(0xFFEEF5FF);
+    if (title.contains('desain') || title.contains('ppt')) return const Color(0xFFFFF3C4);
+    return const Color(0xFFDCFCE7);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -377,14 +392,30 @@ class _ServiceCard extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
+              // BAGIAN 1: Thumbnail Foto Sampul (atau Ikon Default jika null)
               Container(
                 width: 64,
                 height: 64,
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: service.color,
+                  color: _getDynamicBgColor(),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(service.icon, color: service.iconColor, size: 30),
+                child: service.fullBannerUrl != null
+                    ? Image.network(
+                        service.fullBannerUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Icon(
+                          _getDynamicIcon(),
+                          color: _getDynamicIconColor(),
+                          size: 30,
+                        ),
+                      )
+                    : Icon(
+                        _getDynamicIcon(),
+                        color: _getDynamicIconColor(),
+                        size: 30,
+                      ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -392,7 +423,7 @@ class _ServiceCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      service.title,
+                      service.judul,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -403,7 +434,7 @@ class _ServiceCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Penjual: ${service.seller}',
+                      'Penjual: ${service.namaPenjual}',
                       style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 10,
@@ -415,7 +446,7 @@ class _ServiceCard extends StatelessWidget {
                         const Icon(Icons.star, color: Colors.orange, size: 13),
                         const SizedBox(width: 2),
                         Text(
-                          '${service.rating} (${service.reviews} ulasan)',
+                          '${service.rating} (${service.reviewCount} ulasan)',
                           style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 10,
@@ -424,7 +455,7 @@ class _ServiceCard extends StatelessWidget {
                       ],
                     ),
                     Text(
-                      service.price,
+                      'Rp${service.harga}',
                       style: const TextStyle(
                         color: AppColors.primary,
                         fontSize: 12,
@@ -442,28 +473,77 @@ class _ServiceCard extends StatelessWidget {
   }
 }
 
-class _Service {
-  const _Service({
+// -------------------------------------------------------------
+// MODEL & SERVICE BACKEND
+// -------------------------------------------------------------
+
+class ServiceItem {
+  final String id;
+  final String judul;
+  final String harga;
+  final double rating;
+  final int reviewCount;
+  final String namaPenjual;
+  final String? bannerUrl; // BAGIAN 2: Field bannerUrl ditambahkan di sini
+
+  ServiceItem({
     required this.id,
-    required this.title,
-    required this.seller,
+    required this.judul,
+    required this.harga,
     required this.rating,
-    required this.reviews,
-    required this.price,
-    required this.category,
-    required this.color,
-    required this.iconColor,
-    required this.icon,
+    required this.reviewCount,
+    required this.namaPenjual,
+    this.bannerUrl,
   });
 
-  final String id;
-  final String title;
-  final String seller;
-  final String rating;
-  final int reviews;
-  final String price;
-  final String category;
-  final Color color;
-  final Color iconColor;
-  final IconData icon;
+  // Menggabungkan domain server dengan path '/uploads/...'
+  String? get fullBannerUrl {
+    if (bannerUrl == null || bannerUrl!.isEmpty) return null;
+    if (bannerUrl!.startsWith('http')) return bannerUrl;
+    final serverRoot = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    return '$serverRoot$bannerUrl';
+  }
+
+  factory ServiceItem.fromJson(Map<String, dynamic> json) {
+    String formatHarga(dynamic rawHarga) {
+      if (rawHarga == null) return '0';
+      double val = double.parse(rawHarga.toString());
+      return val.toStringAsFixed(0);
+    }
+
+    return ServiceItem(
+      id: json['id']?.toString() ?? '0',
+      judul: json['judul'] ?? '',
+      harga: formatHarga(json['harga']),
+      rating: json['rating'] != null
+          ? double.parse(json['rating'].toString())
+          : 0.0,
+      reviewCount: json['review_count'] ?? 0,
+      namaPenjual: json['nama_penjual'] ?? 'Anonim',
+      bannerUrl: json['banner_url'],
+    );
+  }
+}
+
+class HomeService {
+  Future<List<ServiceItem>> getServices() async {
+    final url = Uri.parse('${ApiConfig.baseUrl}/services');
+
+    try {
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> servicesJson = data['data'];
+
+        return servicesJson.map((json) => ServiceItem.fromJson(json)).toList();
+      } else {
+        debugPrint('Gagal mengambil data. Status: ${response.statusCode}');
+        return [];
+      }
+    } catch (e) {
+      debugPrint('Error saat getServices: $e');
+      return [];
+    }
+  }
 }

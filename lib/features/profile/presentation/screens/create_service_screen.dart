@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../app/routes/route_names.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/utils/api_config.dart';
 import '../../../../core/widgets/app_back_button.dart';
 import '../../controllers/seller_service_store.dart';
 
@@ -20,16 +24,16 @@ class CreateServiceScreen extends StatefulWidget {
 
 class _CreateServiceScreenState extends State<CreateServiceScreen> {
   static const _maxCoverBytes = 5 * 1024 * 1024;
-  static const _categories = [
-    'Desain Grafis & Branding',
-    'Pengembangan Web & Aplikasi',
-    'Penulisan & Penerjemahan',
-    'Akademik',
-    'Coding',
-    'Desain',
-    'Penulisan',
-    'Lainnya',
-  ];
+
+  // Disesuaikan dengan ID pada tabel `categories` di phpMyAdmin (1 - 4)
+  static const Map<String, int> _categoryMap = {
+    'Coding': 1,
+    'Desain': 2,
+    'Tugas': 3,
+    'Ketik': 4,
+  };
+
+  static List<String> get _categories => _categoryMap.keys.toList();
 
   final _formKey = GlobalKey<FormState>();
   final _coverFieldKey = GlobalKey<FormFieldState<Uint8List>>();
@@ -44,6 +48,7 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
   Uint8List? _coverBytes;
   String? _coverName;
   bool _isPickingCover = false;
+  bool _isSubmitting = false;
 
   bool get _isEditing => widget.service != null;
 
@@ -122,7 +127,31 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
     }
   }
 
-  void _save({required SellerServiceStatus status}) {
+  // Mengambil ID user yang sedang login dari SharedPreferences
+  Future<int> _getLoggedInSellerId(SharedPreferences prefs) async {
+    final directIntId = prefs.getInt('user_id');
+    if (directIntId != null) return directIntId;
+
+    final directStrId = prefs.getString('user_id');
+    if (directStrId != null && int.tryParse(directStrId) != null) {
+      return int.parse(directStrId);
+    }
+
+    final userJsonStr = prefs.getString('user');
+    if (userJsonStr != null) {
+      try {
+        final userMap = jsonDecode(userJsonStr);
+        if (userMap is Map && userMap['id'] != null) {
+          return int.tryParse(userMap['id'].toString()) ?? 1;
+        }
+      } catch (_) {}
+    }
+
+    return 1; // Fallback ID default jika sesi lokal belum menyimpan ID
+  }
+
+  Future<void> _save({required SellerServiceStatus status}) async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
 
     final price = int.parse(
@@ -154,20 +183,95 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
       return;
     }
 
-    store.add(
-      title: _titleController.text.trim(),
-      price: price,
-      category: _category,
-      description: _descriptionController.text.trim(),
-      deliverables: deliverables,
-      status: status,
-      coverName: _coverName,
-      coverBytes: _coverBytes,
-      packageName: _packageController.text.trim(),
-      deliveryDays: _deliveryDays,
-      revisions: _revisions,
-    );
-    context.go(Routes.manageServices);
+    setState(() => _isSubmitting = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sellerId = await _getLoggedInSellerId(prefs);
+      final token = prefs.getString('token');
+
+      // Gabungkan deskripsi dengan keunggulan paket agar tersimpan lengkap di kolom deskripsi
+      final baseDesc = _descriptionController.text.trim();
+      final fullDescription = deliverables.isEmpty
+          ? baseDesc
+          : '$baseDesc\n\nYang termasuk dalam paket:\n${deliverables.map((e) => '• $e').join('\n')}';
+
+      // Status 'aktif' saat Publikasikan Jasa agar langsung tampil di Beranda untuk diuji
+      final dbStatus = status == SellerServiceStatus.draft ? 'draft' : 'aktif';
+
+      // Konversi foto sampul ke format Base64 untuk dikirim ke Backend
+      String? coverBase64;
+      if (_coverBytes != null) {
+        final ext = (_coverName ?? '').toLowerCase().endsWith('.png')
+            ? 'png'
+            : 'jpeg';
+        coverBase64 = 'data:image/$ext;base64,${base64Encode(_coverBytes!)}';
+      }
+
+      final url = Uri.parse('${ApiConfig.baseUrl}/services');
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'seller_id': sellerId,
+          'category_id': _categoryMap[_category] ?? 1,
+          'judul': _titleController.text.trim(),
+          'deskripsi': fullDescription,
+          'harga': price,
+          'nama_paket': _packageController.text.trim(),
+          'waktu_pengerjaan': _deliveryDays,
+          'jumlah_revisi': _revisions,
+          'banner_base64': coverBase64,
+          'status': dbStatus,
+        }),
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        // Tetap simpan ke local store agar state lokal tetap sinkron
+        store.add(
+          title: _titleController.text.trim(),
+          price: price,
+          category: _category,
+          description: baseDesc,
+          deliverables: deliverables,
+          status: status,
+          coverName: _coverName,
+          coverBytes: _coverBytes,
+          packageName: _packageController.text.trim(),
+          deliveryDays: _deliveryDays,
+          revisions: _revisions,
+        );
+
+        _showMessage(
+          dbStatus == 'draft'
+              ? 'Draft jasa berhasil disimpan ke database!'
+              : 'Penawaran jasa berhasil dipublikasikan!',
+        );
+
+        // Jika dipublikasikan, langsung arahkan ke Beranda agar hasilnya langsung terlihat
+        if (dbStatus == 'aktif') {
+          context.go(Routes.beranda);
+        } else {
+          context.go(Routes.manageServices);
+        }
+      } else {
+        final errorData = jsonDecode(response.body);
+        _showMessage(errorData['message'] ?? 'Gagal menyimpan jasa ke server.');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Terjadi kesalahan koneksi ke server: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
   }
 
   void _showMessage(String message) {
@@ -391,8 +495,9 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
                     Expanded(
                       flex: 2,
                       child: OutlinedButton(
-                        onPressed: () =>
-                            _save(status: SellerServiceStatus.draft),
+                        onPressed: _isSubmitting
+                            ? null
+                            : () => _save(status: SellerServiceStatus.draft),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.textPrimary,
                           minimumSize: const Size.fromHeight(48),
@@ -405,8 +510,11 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
                     Expanded(
                       flex: 3,
                       child: FilledButton(
-                        onPressed: () =>
-                            _save(status: SellerServiceStatus.underReview),
+                        onPressed: _isSubmitting
+                            ? null
+                            : () => _save(
+                                  status: SellerServiceStatus.underReview,
+                                ),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -415,10 +523,19 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        child: const Text(
-                          'Publikasikan Jasa',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Publikasikan Jasa',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
                       ),
                     ),
                   ],

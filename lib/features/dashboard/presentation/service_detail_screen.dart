@@ -1,20 +1,77 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../core/widgets/app_back_button.dart';
-import 'service_catalog.dart';
+import '../../../core/utils/api_config.dart';
 
-class ServiceDetailScreen extends StatelessWidget {
+class ServiceDetailScreen extends StatefulWidget {
   const ServiceDetailScreen({super.key, this.serviceId});
 
   final String? serviceId;
 
   @override
+  State<ServiceDetailScreen> createState() => _ServiceDetailScreenState();
+}
+
+class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
+  ServiceDetail? _service;
+  bool _isLoading = true;
+  bool _isError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchServiceDetail();
+  }
+
+  Future<void> _fetchServiceDetail() async {
+    if (widget.serviceId == null) {
+      setState(() => _isError = true);
+      return;
+    }
+
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/services/${widget.serviceId}');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _service = ServiceDetail.fromJson(data['data']);
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _isError = true;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error get detail: $e');
+      setState(() {
+        _isError = true;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final service = ServiceCatalog.byId(serviceId);
-    if (service == null) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: const AppBackButton(fallbackLocation: Routes.beranda),
+          title: const Text('Detail Jasa'),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_isError || _service == null) {
       return Scaffold(
         appBar: AppBar(
           leading: const AppBackButton(fallbackLocation: Routes.beranda),
@@ -23,6 +80,8 @@ class ServiceDetailScreen extends StatelessWidget {
         body: const Center(child: Text('Jasa tidak ditemukan.')),
       );
     }
+
+    final service = _service!;
 
     return Scaffold(
       appBar: AppBar(
@@ -46,7 +105,7 @@ class ServiceDetailScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  service.title,
+                  service.judul,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 17,
@@ -58,7 +117,7 @@ class ServiceDetailScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        service.formattedPrice,
+                        'Rp${service.harga}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontSize: 18,
@@ -76,7 +135,7 @@ class ServiceDetailScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '★ ${service.rating}  (${service.salesCount} Terjual)',
+                        '★ ${service.rating}  (${service.reviewCount} Ulasan)',
                         style: const TextStyle(
                           color: Color(0xFF9A5A00),
                           fontSize: 10,
@@ -92,7 +151,7 @@ class ServiceDetailScreen extends StatelessWidget {
                 const _SectionLabel('DESKRIPSI JASA'),
                 const SizedBox(height: 5),
                 Text(
-                  service.description,
+                  service.deskripsi,
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
@@ -102,32 +161,15 @@ class ServiceDetailScreen extends StatelessWidget {
                 const SizedBox(height: 18),
                 const _SectionLabel('PAKET TERMASUK'),
                 const SizedBox(height: 7),
-                ...service.includes.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 7),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle,
-                          color: Color(0xFF22C55E),
-                          size: 15,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                _CheckListItem(text: 'Paket: ${service.namaPaket}'),
+                _CheckListItem(
+                  text: 'Waktu Pengerjaan: ${service.waktuPengerjaan} Hari',
+                ),
+                _CheckListItem(
+                  text: 'Maksimal Revisi: ${service.jumlahRevisi}x',
                 ),
                 const SizedBox(height: 14),
-                _SectionLabel('ULASAN PEMBELI (${service.reviews})'),
+                _SectionLabel('ULASAN PEMBELI (${service.reviewCount})'),
                 const SizedBox(height: 7),
                 const _ReviewCard(),
               ],
@@ -163,7 +205,6 @@ class ServiceDetailScreen extends StatelessWidget {
                 child: ElevatedButton(
                   onPressed: () => context.push(
                     Routes.orderCheckout,
-                    extra: service,
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
@@ -182,82 +223,135 @@ class ServiceDetailScreen extends StatelessWidget {
   }
 }
 
+class _CheckListItem extends StatelessWidget {
+  final String text;
+  const _CheckListItem({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle, color: Color(0xFF22C55E), size: 15),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ServiceIllustration extends StatelessWidget {
   const _ServiceIllustration({required this.service});
 
-  final ServiceInfo service;
+  final ServiceDetail service;
+
+  Color _getDynamicBgColor() {
+    final title = service.judul.toLowerCase();
+    if (title.contains('web') || title.contains('coding')) {
+      return const Color(0xFFEEF5FF);
+    }
+    if (title.contains('desain') || title.contains('ppt')) {
+      return const Color(0xFFFFF3C4);
+    }
+    return const Color(0xFFDCFCE7);
+  }
+
+  Widget _buildDefaultIllustration() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      child: Center(
+        child: Container(
+          width: 140,
+          height: 90,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: AppColors.primary, width: 1.5),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 48,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF93C5FD),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Container(
+                width: 92,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 15,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const Spacer(),
+                  const CircleAvatar(
+                    radius: 8,
+                    backgroundColor: Color(0xFF60A5FA),
+                  ),
+                  const SizedBox(width: 2),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 156,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      color: service.color,
+      color: _getDynamicBgColor(),
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          Center(
-            child: Container(
-              width: 140,
-              height: 90,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: AppColors.primary, width: 1.5),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 48,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF93C5FD),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Container(
-                    width: 92,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const Spacer(),
-                  Row(
-                    children: [
-                      Container(
-                        width: 42,
-                        height: 15,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      const Spacer(),
-                      const CircleAvatar(
-                        radius: 8,
-                        backgroundColor: Color(0xFF60A5FA),
-                      ),
-                      const SizedBox(width: 2),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.bottomLeft,
+          if (service.fullBannerUrl != null)
+            Image.network(
+              service.fullBannerUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _buildDefaultIllustration(),
+            )
+          else
+            _buildDefaultIllustration(),
+          Positioned(
+            left: 16,
+            bottom: 10,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
@@ -265,9 +359,7 @@ class _ServiceIllustration extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                service.category == 'Coding'
-                    ? 'KODING WEB'
-                    : service.category.toUpperCase(),
+                service.namaKategori.toUpperCase(),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 9,
@@ -285,7 +377,18 @@ class _ServiceIllustration extends StatelessWidget {
 class _SellerCard extends StatelessWidget {
   const _SellerCard({required this.service});
 
-  final ServiceInfo service;
+  final ServiceDetail service;
+
+  Color _getDynamicIconColor() {
+    final title = service.judul.toLowerCase();
+    if (title.contains('web') || title.contains('coding')) {
+      return AppColors.primary;
+    }
+    if (title.contains('desain') || title.contains('ppt')) {
+      return const Color(0xFFF59E0B);
+    }
+    return const Color(0xFF16A34A);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -301,7 +404,7 @@ class _SellerCard extends StatelessWidget {
           CircleAvatar(
             radius: 17,
             backgroundColor: const Color(0xFFDCEAFF),
-            child: Icon(Icons.person, color: service.iconColor, size: 19),
+            child: Icon(Icons.person, color: _getDynamicIconColor(), size: 19),
           ),
           const SizedBox(width: 9),
           Expanded(
@@ -309,7 +412,7 @@ class _SellerCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  service.seller,
+                  service.namaPenjual,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 12,
@@ -317,7 +420,7 @@ class _SellerCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${service.department} • Online 2 jam lalu',
+                  '${service.jurusanPenjual} • Online 2 jam lalu',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -418,6 +521,74 @@ class _ReviewCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// MODEL BACKEND UNTUK DETAIL JASA
+// -------------------------------------------------------------
+class ServiceDetail {
+  final String id;
+  final String judul;
+  final String deskripsi;
+  final String harga;
+  final String namaPaket;
+  final int waktuPengerjaan;
+  final int jumlahRevisi;
+  final double rating;
+  final int reviewCount;
+  final String namaKategori;
+  final String namaPenjual;
+  final String jurusanPenjual;
+  final String? bannerUrl;
+
+  ServiceDetail({
+    required this.id,
+    required this.judul,
+    required this.deskripsi,
+    required this.harga,
+    required this.namaPaket,
+    required this.waktuPengerjaan,
+    required this.jumlahRevisi,
+    required this.rating,
+    required this.reviewCount,
+    required this.namaKategori,
+    required this.namaPenjual,
+    required this.jurusanPenjual,
+    this.bannerUrl,
+  });
+
+  String? get fullBannerUrl {
+    if (bannerUrl == null || bannerUrl!.isEmpty) return null;
+    if (bannerUrl!.startsWith('http')) return bannerUrl;
+    final serverRoot = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    return '$serverRoot$bannerUrl';
+  }
+
+  factory ServiceDetail.fromJson(Map<String, dynamic> json) {
+    String formatHarga(dynamic rawHarga) {
+      if (rawHarga == null) return '0';
+      double val = double.parse(rawHarga.toString());
+      return val.toStringAsFixed(0);
+    }
+
+    return ServiceDetail(
+      id: json['id']?.toString() ?? '0',
+      judul: json['judul'] ?? '',
+      deskripsi: json['deskripsi'] ?? 'Tidak ada deskripsi',
+      harga: formatHarga(json['harga']),
+      namaPaket: json['nama_paket'] ?? 'Standar',
+      waktuPengerjaan: json['waktu_pengerjaan'] ?? 1,
+      jumlahRevisi: json['jumlah_revisi'] ?? 0,
+      rating: json['rating'] != null
+          ? double.parse(json['rating'].toString())
+          : 0.0,
+      reviewCount: json['review_count'] ?? 0,
+      namaKategori: json['nama_kategori'] ?? 'Lainnya',
+      namaPenjual: json['nama_penjual'] ?? 'Anonim',
+      jurusanPenjual: json['jurusan_penjual'] ?? 'Mahasiswa',
+      bannerUrl: json['banner_url'],
     );
   }
 }

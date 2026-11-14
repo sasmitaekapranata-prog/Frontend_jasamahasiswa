@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/routes/route_names.dart';
 import 'auth_form_layout.dart';
+// Pastikan path import AuthService ini disesuaikan dengan struktur folder Anda
+import '../services/auth_service.dart'; 
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,6 +17,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  
+  // Tambahkan variabel untuk mendeteksi status loading
+  bool _isLoading = false; 
 
   @override
   void dispose() {
@@ -23,10 +28,40 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  // Ubah fungsi _submit menjadi async untuk memanggil API
+  void _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    context.go(Routes.beranda);
+    // Ubah state menjadi loading
+    setState(() {
+      _isLoading = true;
+    });
+
+    final authService = AuthService();
+    final isSuccess = await authService.login(
+      _emailController.text,
+      _passwordController.text,
+    );
+
+    // Cek apakah widget masih aktif sebelum melakukan update UI
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+
+      if (isSuccess) {
+        // Arahkan ke beranda jika login berhasil
+        context.go(Routes.beranda);
+      } else {
+        // Tampilkan pesan error jika gagal
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Login Gagal! Periksa kembali email dan password Anda.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -80,7 +115,8 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(
           height: 40,
           child: FilledButton(
-            onPressed: _submit,
+            // Nonaktifkan tombol saat sedang loading agar tidak diklik dua kali
+            onPressed: _isLoading ? null : _submit,
             style: FilledButton.styleFrom(
               backgroundColor: authPrimaryColor,
               shape: RoundedRectangleBorder(
@@ -88,7 +124,17 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               textStyle: const TextStyle(fontSize: 11),
             ),
-            child: const Text('Login'),
+            // Tampilkan animasi loading atau teks 'Login'
+            child: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text('Login'),
           ),
         ),
       ],
