@@ -25,9 +25,7 @@ class SellerProfileScreen extends StatelessWidget {
       );
     }
 
-    final sellerServices = ServiceCatalog.services
-        .where((item) => item.seller == service.seller)
-        .toList();
+    final sellerServices = ServiceCatalog.forSeller(service);
     final initials = service.seller
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty)
@@ -282,17 +280,32 @@ class _SellerServiceCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: service.color,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  service.icon,
-                  color: service.iconColor,
-                  size: 22,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 42,
+                  height: 42,
+                  child: service.coverBytes == null
+                      ? ColoredBox(
+                          color: service.color,
+                          child: Icon(
+                            service.icon,
+                            color: service.iconColor,
+                            size: 22,
+                          ),
+                        )
+                      : Image.memory(
+                          service.coverBytes!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => ColoredBox(
+                            color: service.color,
+                            child: Icon(
+                              service.icon,
+                              color: service.iconColor,
+                              size: 22,
+                            ),
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 10),

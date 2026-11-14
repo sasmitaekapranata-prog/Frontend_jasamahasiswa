@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:jasa_mahasiswa/features/profile/controllers/seller_service_store.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
@@ -19,6 +22,7 @@ class ServiceInfo {
     required this.icon,
     required this.description,
     required this.includes,
+    this.coverBytes,
   });
 
   final String id;
@@ -35,6 +39,7 @@ class ServiceInfo {
   final IconData icon;
   final String description;
   final List<String> includes;
+  final Uint8List? coverBytes;
 
   String get formattedPrice => Formatters.currency(price);
 }
@@ -112,6 +117,61 @@ class ServiceCatalog {
     for (final service in services) {
       if (service.id == id) return service;
     }
+    for (final service in SellerServiceStore.instance.services) {
+      if (service.id == id) return _fromSellerService(service);
+    }
     return null;
+  }
+
+  static List<ServiceInfo> forSeller(ServiceInfo seller) {
+    return [
+      ...services.where((service) => service.seller == seller.seller),
+      ...SellerServiceStore.instance.services
+          .where(
+            (service) =>
+                service.sellerName == seller.seller &&
+                (service.status == SellerServiceStatus.active ||
+                    service.id == seller.id),
+          )
+          .map(_fromSellerService),
+    ];
+  }
+
+  static ServiceInfo _fromSellerService(SellerService service) {
+    final (color, iconColor, icon) = switch (service.category.toLowerCase()) {
+      'coding' || 'pengembangan web & aplikasi' => (
+          const Color(0xFFDCEAFF),
+          AppColors.primary,
+          Icons.code,
+        ),
+      'desain' || 'desain grafis & branding' => (
+          const Color(0xFFFFF3C4),
+          const Color(0xFFF59E0B),
+          Icons.palette_outlined,
+        ),
+      _ => (
+          const Color(0xFFDCFCE7),
+          const Color(0xFF16A34A),
+          Icons.work_outline,
+        ),
+    };
+
+    return ServiceInfo(
+      id: service.id,
+      title: service.title,
+      seller: service.sellerName,
+      department: service.sellerDepartment,
+      rating: service.rating,
+      reviews: 0,
+      salesCount: service.salesCount,
+      price: service.price,
+      category: service.category,
+      color: color,
+      iconColor: iconColor,
+      icon: icon,
+      description: service.description,
+      includes: service.deliverables,
+      coverBytes: service.coverBytes,
+    );
   }
 }

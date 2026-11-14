@@ -173,6 +173,35 @@ class _StatusPesananScreenState extends State<StatusPesananScreen> {
                               '${Routes.chatDetail}/${Uri.encodeComponent(order.transactionId ?? order.service.id)}',
                               extra: order,
                             ),
+                            onRequestRevision: order.progress ==
+                                    OrderProgress.revision
+                                ? () {
+                                    _orderStore.requestOrderRevision(
+                                      order.transactionId,
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Permintaan revisi dikirim ke penjual.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            onComplete: order.progress == OrderProgress.revision
+                                ? () {
+                                    _orderStore.completeOrder(
+                                      order.transactionId,
+                                    );
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Pesanan selesai. Terima kasih!',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : null,
                           );
                         },
                       ),
@@ -208,6 +237,43 @@ class _StatusPesananScreenState extends State<StatusPesananScreen> {
               _DetailRow('Jasa', order.service.title),
               _DetailRow('Penjual', order.service.seller),
               _DetailRow('Brief', order.brief),
+              if (order.attachments.isNotEmpty)
+                _DetailRow(
+                  'File terlampir',
+                  order.attachments.map((file) => file.name).join(', '),
+                ),
+              if (order.resultFiles.isNotEmpty)
+                _DetailRow(
+                  'Hasil pekerjaan',
+                  order.resultFiles.map((file) => file.name).join(', '),
+                ),
+              if (order.resultFiles.isNotEmpty)
+                for (final file in order.resultFiles)
+                  if (file.isImage)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.memory(
+                          file.bytes,
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 80,
+                            alignment: Alignment.center,
+                            color: AppColors.background,
+                            child: Text(
+                              file.name,
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
               _DetailRow('Metode pembayaran', order.paymentMethod),
               _DetailRow('Total', Formatters.currency(order.total)),
               _DetailRow('Status', order.progress.label),
@@ -226,11 +292,15 @@ class _OrderCard extends StatelessWidget {
     required this.order,
     required this.onDetails,
     required this.onChat,
+    this.onRequestRevision,
+    this.onComplete,
   });
 
   final OrderPayment order;
   final VoidCallback onDetails;
   final VoidCallback onChat;
+  final VoidCallback? onRequestRevision;
+  final VoidCallback? onComplete;
 
   @override
   Widget build(BuildContext context) {
@@ -369,9 +439,77 @@ class _OrderCard extends StatelessWidget {
           Text(
             order.progress == OrderProgress.completed
                 ? 'Pesanan telah diselesaikan.'
+                : order.progress == OrderProgress.revision
+                    ? 'Penjual sudah mengirimkan hasil. Periksa lalu selesaikan atau minta revisi.'
                 : 'Estimasi selesai mengikuti konfirmasi penjual.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 9),
           ),
+          if (order.resultFiles.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            for (final file in order.resultFiles)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  children: [
+                    Icon(
+                      file.isImage
+                          ? Icons.image_outlined
+                          : Icons.insert_drive_file_outlined,
+                      color: AppColors.primary,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        file.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.primaryDark,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          if (onRequestRevision != null && onComplete != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onRequestRevision,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(34),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text(
+                      'Minta Revisi',
+                      style: TextStyle(fontSize: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: onComplete,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(34),
+                      backgroundColor: AppColors.success,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text(
+                      'Konfirmasi Selesai',
+                      style: TextStyle(fontSize: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

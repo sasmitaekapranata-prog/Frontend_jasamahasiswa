@@ -40,6 +40,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   List<_ChatMessage> _initialMessages() {
     if (_isSeller) {
+      final order = widget.order;
+      if (order != null) {
+        return [
+          _ChatMessage(
+            text: 'Saya sudah memesan ${order.service.title}.',
+            isMine: false,
+            time: 'Baru saja',
+          ),
+          if (order.brief.isNotEmpty)
+            _ChatMessage(
+              text: 'Brief pesanan:\n${order.brief}',
+              isMine: false,
+              time: 'Baru saja',
+            ),
+          _ChatMessage(
+            text: switch (order.progress) {
+              OrderProgress.waitingSeller =>
+                'Terima kasih, pesanan kamu sedang menunggu konfirmasi.',
+              OrderProgress.inProgress =>
+                'Pesanan sudah saya terima dan sedang dikerjakan.',
+              OrderProgress.revision =>
+                'Hasil pekerjaan sudah saya kirim. Silakan diperiksa.',
+              OrderProgress.completed => 'Pesanan ini sudah selesai.',
+              OrderProgress.cancelled => 'Pesanan ini sudah dibatalkan.',
+            },
+            isMine: true,
+            time: 'Baru saja',
+          ),
+          if (order.resultFiles.isNotEmpty)
+            _ChatMessage(
+              text: 'File hasil: ${order.resultFiles.map((file) => file.name).join(', ')}',
+              isMine: true,
+              time: 'Baru saja',
+            ),
+        ];
+      }
+
       return [
         const _ChatMessage(
           text: 'Halo kak, saya tertarik dengan jasa yang kamu tawarkan.',
@@ -66,12 +103,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           isMine: true,
           time: '12:09',
         ),
-      const _ChatMessage(
-        text:
-            'Baik, proyeknya sedang saya kerjakan. Kalau ada yang perlu ditanyakan, kabari saya ya.',
-        isMine: false,
-        time: '12:10',
-      ),
+      if (widget.order?.resultFiles.isNotEmpty ?? false)
+        _ChatMessage(
+          text:
+              'Hasil pekerjaan: ${widget.order!.resultFiles.map((file) => file.name).join(', ')}',
+          isMine: false,
+          time: '12:10',
+        ),
+      if (widget.order == null ||
+          widget.order!.progress == OrderProgress.waitingSeller ||
+          widget.order!.progress == OrderProgress.inProgress)
+        const _ChatMessage(
+          text:
+              'Baik, proyeknya sedang saya kerjakan. Kalau ada yang perlu ditanyakan, kabari saya ya.',
+          isMine: false,
+          time: '12:10',
+        )
+      else if (widget.order!.progress == OrderProgress.revision)
+        const _ChatMessage(
+          text:
+              'Hasil pekerjaan sudah dikirim. Silakan periksa file dan beri tahu jika membutuhkan revisi.',
+          isMine: false,
+          time: '12:10',
+        )
+      else if (widget.order!.progress == OrderProgress.completed)
+        const _ChatMessage(
+          text: 'Pesanan sudah selesai. Terima kasih!',
+          isMine: false,
+          time: '12:10',
+        ),
     ];
   }
 
@@ -85,8 +145,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
-    final counterpart = order != null && !_isSeller
-        ? order.service.seller
+    final counterpart = order != null
+        ? _isSeller
+            ? order.buyerName
+            : order.service.seller
         : _counterpartForChatId(widget.chatId, isSeller: _isSeller);
     final serviceTitle = order?.service.title ?? 'Konsultasi jasa';
     final transactionId = order?.transactionId ?? widget.chatId ?? '-';

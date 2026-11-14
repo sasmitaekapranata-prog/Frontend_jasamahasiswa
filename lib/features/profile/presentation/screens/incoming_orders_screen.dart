@@ -131,6 +131,45 @@ class _IncomingOrderCard extends StatelessWidget {
               fontSize: 11,
             ),
           ),
+          if (order.attachments.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'File dari pembeli',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            for (final attachment in order.attachments)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  children: [
+                    Icon(
+                      attachment.isImage
+                          ? Icons.image_outlined
+                          : Icons.insert_drive_file_outlined,
+                      color: AppColors.primary,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        attachment.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
           const SizedBox(height: 4),
           Text(
             '${Formatters.currency(order.total)} • ${order.progress.label} '

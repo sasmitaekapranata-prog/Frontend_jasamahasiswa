@@ -6,22 +6,9 @@ import '../../../../app/routes/route_names.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/app_back_button.dart';
+import '../../controllers/seller_wallet_store.dart';
 
 enum _TransactionFilter { all, income, withdrawal }
-
-class _Withdrawal {
-  const _Withdrawal({
-    required this.id,
-    required this.amount,
-    required this.fee,
-    required this.createdAt,
-  });
-
-  final String id;
-  final int amount;
-  final int fee;
-  final DateTime createdAt;
-}
 
 class WithdrawSaldoScreen extends StatefulWidget {
   const WithdrawSaldoScreen({super.key});
@@ -31,17 +18,12 @@ class WithdrawSaldoScreen extends StatefulWidget {
 }
 
 class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
-  static const _startingBalance = 1450000;
-  static const _minimumWithdrawal = 50000;
   static const _transferFee = 2500;
 
   final _amountController = TextEditingController(text: '1000000');
-  int _balance = _startingBalance;
+  final _wallet = SellerWalletStore.instance;
   _TransactionFilter _filter = _TransactionFilter.withdrawal;
-  _Withdrawal? _latestWithdrawal;
-  String _bankName = 'Bank Central Asia (BCA)';
-  String _accountNumber = '7812 **** 9901';
-  String _accountHolder = 'Alex Wijaya';
+  SellerWalletTransaction? _latestWithdrawal;
   bool _showSuccess = false;
 
   int get _amount =>
@@ -51,6 +33,11 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
   int get _fee => _amount > 0 && _amount < 1500000 ? _transferFee : 0;
 
   int get _netAmount => (_amount - _fee).clamp(0, _amount).toInt();
+  int get _balance => _wallet.balance;
+  String get _bankName => _wallet.bankName;
+  String get _accountNumber => _wallet.accountNumber;
+  String get _editableAccountNumber => _wallet.accountNumberForEditing;
+  String get _accountHolder => _wallet.accountHolder;
 
   @override
   void initState() {
@@ -76,8 +63,9 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
   }
 
   String? _validateAmount() {
-    if (_amount < _minimumWithdrawal) {
-      return 'Minimal penarikan ${Formatters.currency(_minimumWithdrawal)}.';
+    if (_amount < SellerWalletStore.minimumWithdrawal) {
+      return 'Minimal penarikan '
+          '${Formatters.currency(SellerWalletStore.minimumWithdrawal)}.';
     }
     if (_amount > _balance) {
       return 'Saldo tidak mencukupi untuk nominal tersebut.';
@@ -110,24 +98,21 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
 
     if (confirmed != true || !mounted) return;
 
-    final now = DateTime.now();
-    setState(() {
-      _latestWithdrawal = _Withdrawal(
-        id: 'WD-${now.year}${_twoDigits(now.month)}${_twoDigits(now.day)}-'
-            '${now.millisecondsSinceEpoch.toString().substring(8)}',
-        amount: amount,
-        fee: fee,
-        createdAt: now,
-      );
-      _balance -= amount;
-      _showSuccess = true;
-    });
+    try {
+      final withdrawal = _wallet.withdraw(amount: amount, fee: fee);
+      setState(() {
+        _latestWithdrawal = withdrawal;
+        _showSuccess = true;
+      });
+    } on StateError catch (error) {
+      _showMessage(error.message.toString());
+    }
   }
 
   Future<void> _editBankAccount() async {
     final accountNameController = TextEditingController(text: _accountHolder);
     final accountNumberController = TextEditingController(
-      text: _accountNumber.replaceAll(' ', ''),
+      text: _editableAccountNumber,
     );
     final formKey = GlobalKey<FormState>();
     var selectedBank = _bankName;
@@ -220,27 +205,24 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
 
     if (account == null || !mounted) return;
     setState(() {
-      _bankName = account.$1;
-      _accountNumber = _maskAccountNumber(account.$2);
-      _accountHolder = account.$3;
+      _wallet.updateBankAccount(
+        bankName: account.$1,
+        accountNumber: account.$2,
+        accountHolder: account.$3,
+      );
     });
   }
 
-  void _showReceipt() {
-    final withdrawal = _latestWithdrawal;
-    if (withdrawal == null) return;
+  void _showReceipt(SellerWalletTransaction withdrawal) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _ReceiptSheet(
+      builder: (sheetContext) => _ReceiptSheet(
         withdrawal: withdrawal,
-        bankName: _bankName,
-        accountNumber: _accountNumber,
-        accountHolder: _accountHolder,
         onCopy: () {
           Clipboard.setData(ClipboardData(text: withdrawal.id));
-          Navigator.pop(context);
+          Navigator.pop(sheetContext);
           _showMessage('ID transaksi berhasil disalin.');
         },
       ),
@@ -258,57 +240,58 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
     if (_showSuccess && _latestWithdrawal != null) {
       return _WithdrawalSuccessScreen(
         withdrawal: _latestWithdrawal!,
-        bankName: _bankName,
-        accountNumber: _accountNumber,
-        accountHolder: _accountHolder,
-        onShowReceipt: _showReceipt,
-        onBackToProfile: () => context.go(Routes.profil),
+        onShowReceipt: () => _showReceipt(_latestWithdrawal!),
+        onBackToProfile: () {
+          setState(() => _showSuccess = false);
+          context.go(Routes.profil);
+        },
       );
     }
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        leading: const AppBackButton(fallbackLocation: Routes.profil),
-        title: const Text(
-          'Riwayat & Tarik Saldo',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+    return AnimatedBuilder(
+      animation: _wallet,
+      builder: (context, _) => Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          leading: const AppBackButton(fallbackLocation: Routes.profil),
+          title: const Text(
+            'Riwayat & Tarik Saldo',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
         ),
-        backgroundColor: AppColors.surface,
-        surfaceTintColor: Colors.transparent,
-      ),
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
-                children: [
-                  _BalanceCard(
-                    balance: _balance,
-                    minimum: _minimumWithdrawal,
-                  ),
-                  const SizedBox(height: 18),
-                  _SectionLabel('Catatan Transaksi'),
-                  const SizedBox(height: 8),
-                  _TransactionFilters(
-                    selected: _filter,
-                    onChanged: (filter) => setState(() => _filter = filter),
-                  ),
-                  const SizedBox(height: 18),
-                  _SectionLabel('Rekening Tujuan'),
-                  const SizedBox(height: 8),
-                  _BankAccountCard(
-                    bankName: _bankName,
-                    accountNumber: _accountNumber,
-                    accountHolder: _accountHolder,
-                    onEdit: _editBankAccount,
-                  ),
-                  const SizedBox(height: 18),
-                  if (_filter != _TransactionFilter.income) ...[
+        body: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+                  children: [
+                    _BalanceCard(
+                      balance: _balance,
+                      minimum: SellerWalletStore.minimumWithdrawal,
+                    ),
+                    const SizedBox(height: 18),
+                    _SectionLabel('Catatan Transaksi'),
+                    const SizedBox(height: 8),
+                    _TransactionFilters(
+                      selected: _filter,
+                      onChanged: (filter) => setState(() => _filter = filter),
+                    ),
+                    const SizedBox(height: 18),
+                    _SectionLabel('Rekening Tujuan'),
+                    const SizedBox(height: 8),
+                    _BankAccountCard(
+                      bankName: _bankName,
+                      accountNumber: _accountNumber,
+                      accountHolder: _accountHolder,
+                      onEdit: _editBankAccount,
+                    ),
+                    const SizedBox(height: 18),
                     _SectionLabel('Nominal Penarikan'),
                     const SizedBox(height: 8),
                     _AmountInput(
@@ -320,9 +303,19 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
                       balance: _balance,
                       onSelected: _setAmount,
                     ),
+                    if (_amount > _balance) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Nominal melebihi saldo tersedia '
+                        '(${Formatters.currency(_balance)}).',
+                        style: const TextStyle(
+                          color: AppColors.danger,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 18),
-                  ],
-                  if (_filter != _TransactionFilter.income) ...[
                     _SectionLabel('Rincian Transaksi'),
                     const SizedBox(height: 8),
                     _WithdrawalBreakdown(
@@ -335,20 +328,20 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
                     const SizedBox(height: 12),
                     const _ProcessingNotice(),
                     const SizedBox(height: 18),
+                    _TransactionHistory(
+                      filter: _filter,
+                      transactions: _wallet.transactions,
+                      onWithdrawalTap: _showReceipt,
+                    ),
                   ],
-                  _TransactionHistory(
-                    filter: _filter,
-                    withdrawal: _latestWithdrawal,
-                  ),
-                ],
+                ),
               ),
-            ),
-            if (_filter != _TransactionFilter.income)
               _BottomAction(
                 label: 'Konfirmasi & Tarik Saldo',
                 onPressed: _confirmWithdrawal,
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -837,81 +830,132 @@ class _ProcessingNotice extends StatelessWidget {
 class _TransactionHistory extends StatelessWidget {
   const _TransactionHistory({
     required this.filter,
-    required this.withdrawal,
+    required this.transactions,
+    required this.onWithdrawalTap,
   });
 
   final _TransactionFilter filter;
-  final _Withdrawal? withdrawal;
+  final List<SellerWalletTransaction> transactions;
+  final ValueChanged<SellerWalletTransaction> onWithdrawalTap;
 
   @override
   Widget build(BuildContext context) {
-    if (filter == _TransactionFilter.income) {
-      return const _HistoryEmpty(
-        message: 'Belum ada catatan pemasukan.',
-        icon: Icons.south_west,
+    final visibleTransactions = transactions.where((transaction) {
+      return switch (filter) {
+        _TransactionFilter.all => true,
+        _TransactionFilter.income =>
+          transaction.type == WalletTransactionType.income,
+        _TransactionFilter.withdrawal =>
+          transaction.type == WalletTransactionType.withdrawal,
+      };
+    }).toList();
+    if (visibleTransactions.isEmpty) {
+      final message = switch (filter) {
+        _TransactionFilter.all => 'Belum ada transaksi.',
+        _TransactionFilter.income => 'Belum ada catatan pemasukan.',
+        _TransactionFilter.withdrawal => 'Belum ada catatan penarikan.',
+      };
+      return _HistoryEmpty(
+        message: message,
+        icon: filter == _TransactionFilter.income
+            ? Icons.south_west
+            : Icons.receipt_long_outlined,
       );
     }
-    if (withdrawal == null) {
-      return const SizedBox.shrink();
-    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionLabel('Transaksi Terakhir'),
+        const _SectionLabel('Riwayat Transaksi'),
         const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            children: [
-              const CircleAvatar(
-                radius: 17,
-                backgroundColor: Color(0xFFFFF1F2),
-                child: Icon(
-                  Icons.north_east,
-                  color: AppColors.danger,
-                  size: 16,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        for (final transaction in visibleTransactions) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border.all(color: AppColors.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: transaction.type == WalletTransactionType.withdrawal
+                  ? () => onWithdrawalTap(transaction)
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
                   children: [
-                    const Text(
-                      'Penarikan saldo',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                    CircleAvatar(
+                      radius: 17,
+                      backgroundColor:
+                          transaction.type == WalletTransactionType.income
+                              ? const Color(0xFFDCFCE7)
+                              : const Color(0xFFFFF1F2),
+                      child: Icon(
+                        transaction.type == WalletTransactionType.income
+                            ? Icons.south_west
+                            : Icons.north_east,
+                        color: transaction.type == WalletTransactionType.income
+                            ? AppColors.success
+                            : AppColors.danger,
+                        size: 16,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            transaction.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${Formatters.shortDate(transaction.createdAt)} • '
+                            '${transaction.type == WalletTransactionType.income ? 'Berhasil' : 'Menunggu proses'}',
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 9,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'ID: ${transaction.id}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Text(
-                      '${Formatters.shortDate(withdrawal!.createdAt)} • Menunggu proses',
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 9,
+                      '${transaction.type == WalletTransactionType.income ? '+' : '-'}'
+                      '${Formatters.currency(transaction.amount)}',
+                      style: TextStyle(
+                        color: transaction.type == WalletTransactionType.income
+                            ? AppColors.success
+                            : AppColors.danger,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-              Text(
-                '-${Formatters.currency(withdrawal!.amount)}',
-                style: const TextStyle(
-                  color: AppColors.danger,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -1097,17 +1141,11 @@ class _ConfirmWithdrawalSheet extends StatelessWidget {
 class _WithdrawalSuccessScreen extends StatelessWidget {
   const _WithdrawalSuccessScreen({
     required this.withdrawal,
-    required this.bankName,
-    required this.accountNumber,
-    required this.accountHolder,
     required this.onShowReceipt,
     required this.onBackToProfile,
   });
 
-  final _Withdrawal withdrawal;
-  final String bankName;
-  final String accountNumber;
-  final String accountHolder;
+  final SellerWalletTransaction withdrawal;
   final VoidCallback onShowReceipt;
   final VoidCallback onBackToProfile;
 
@@ -1169,9 +1207,9 @@ class _WithdrawalSuccessScreen extends StatelessWidget {
                         const _SectionLabel('Rincian Rekening Tujuan'),
                         const SizedBox(height: 10),
                         _BankAccountCard(
-                          bankName: bankName,
-                          accountNumber: accountNumber,
-                          accountHolder: accountHolder,
+                          bankName: withdrawal.bankName ?? '',
+                          accountNumber: withdrawal.accountNumber ?? '',
+                          accountHolder: withdrawal.accountHolder ?? '',
                         ),
                         const SizedBox(height: 16),
                         const _SectionLabel('Rincian Transaksi'),
@@ -1332,16 +1370,10 @@ class _SuccessHeader extends StatelessWidget {
 class _ReceiptSheet extends StatelessWidget {
   const _ReceiptSheet({
     required this.withdrawal,
-    required this.bankName,
-    required this.accountNumber,
-    required this.accountHolder,
     required this.onCopy,
   });
 
-  final _Withdrawal withdrawal;
-  final String bankName;
-  final String accountNumber;
-  final String accountHolder;
+  final SellerWalletTransaction withdrawal;
   final VoidCallback onCopy;
 
   @override
@@ -1413,11 +1445,20 @@ class _ReceiptSheet extends StatelessWidget {
                     ),
                   ),
                   const Divider(height: 24),
-                  _DetailRow(label: 'Bank tujuan', value: bankName),
+                  _DetailRow(
+                    label: 'Bank tujuan',
+                    value: withdrawal.bankName ?? '-',
+                  ),
                   const SizedBox(height: 9),
-                  _DetailRow(label: 'Nomor rekening', value: accountNumber),
+                  _DetailRow(
+                    label: 'Nomor rekening',
+                    value: withdrawal.accountNumber ?? '-',
+                  ),
                   const SizedBox(height: 9),
-                  _DetailRow(label: 'Nama penerima', value: accountHolder),
+                  _DetailRow(
+                    label: 'Nama penerima',
+                    value: withdrawal.accountHolder ?? '-',
+                  ),
                   const SizedBox(height: 9),
                   _DetailRow(label: 'ID transaksi', value: withdrawal.id),
                   const SizedBox(height: 9),
@@ -1446,12 +1487,6 @@ class _ReceiptSheet extends StatelessWidget {
   }
 }
 
-String _maskAccountNumber(String accountNumber) {
-  if (accountNumber.length <= 4) return accountNumber;
-  return '${accountNumber.substring(0, 4)} **** '
-      '${accountNumber.substring(accountNumber.length - 4)}';
-}
-
 String _bankInitials(String bankName) {
   final name = bankName
       .replaceAll(RegExp(r'\([^)]*\)'), '')
@@ -1464,5 +1499,3 @@ String _bankInitials(String bankName) {
   }
   return '${name[0][0]}${name[1][0]}'.toUpperCase();
 }
-
-String _twoDigits(int value) => value.toString().padLeft(2, '0');

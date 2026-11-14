@@ -34,54 +34,49 @@ class MainShellLayout extends StatelessWidget {
           final unreadCount = ChatActivityStore.instance.unreadCount(
             UserRoleController.instance.selectedRole,
           );
-          final items = [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home),
-              label: 'Beranda',
-            ),
-            BottomNavigationBarItem(
-              icon: _NavIconWithBadge(
-                icon: Icons.chat_bubble_outline,
-                count: unreadCount,
+          return SafeArea(
+            top: false,
+            child: Container(
+              key: const ValueKey('main-navigation-bar'),
+              height: 72,
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
-              activeIcon: _NavIconWithBadge(
-                icon: Icons.chat_bubble,
-                count: unreadCount,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _NavigationItem(
+                      label: 'Beranda',
+                      icon: Icons.home_outlined,
+                      activeIcon: Icons.home,
+                      selected: currentIndex == 0,
+                      onTap: () => context.go('/beranda'),
+                    ),
+                  ),
+                  Expanded(
+                    child: _NavigationItem(
+                      label: 'Chat',
+                      icon: Icons.chat_bubble_outline,
+                      activeIcon: Icons.chat_bubble,
+                      selected: currentIndex == 1,
+                      unreadCount: unreadCount,
+                      onTap: () => context.go('/chat'),
+                    ),
+                  ),
+                  Expanded(
+                    child: _NavigationItem(
+                      label: 'Akun',
+                      icon: Icons.person_outline,
+                      activeIcon: Icons.person,
+                      selected: currentIndex == 2,
+                      onTap: () => context.go('/profil'),
+                    ),
+                  ),
+                ],
               ),
-              label: 'Chat',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
-              label: 'Profil',
-            ),
-          ];
-
-          return BottomNavigationBar(
-            currentIndex: currentIndex,
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.white,
-            selectedItemColor: AppColors.primary,
-            unselectedItemColor: const Color(0xFF718096),
-            selectedFontSize: 10,
-            unselectedFontSize: 10,
-            elevation: 0,
-            showUnselectedLabels: true,
-            onTap: (value) {
-              switch (value) {
-                case 0:
-                  context.go('/beranda');
-                  break;
-                case 1:
-                  context.go('/chat');
-                  break;
-                case 2:
-                  context.go('/profil');
-                  break;
-              }
-            },
-            items: items,
           );
         },
       ),
@@ -89,41 +84,91 @@ class MainShellLayout extends StatelessWidget {
   }
 }
 
-class _NavIconWithBadge extends StatelessWidget {
-  const _NavIconWithBadge({required this.icon, required this.count});
+class _NavigationItem extends StatelessWidget {
+  const _NavigationItem({
+    required this.label,
+    required this.icon,
+    required this.activeIcon,
+    required this.selected,
+    required this.onTap,
+    this.unreadCount = 0,
+  });
 
+  final String label;
   final IconData icon;
-  final int count;
+  final IconData activeIcon;
+  final bool selected;
+  final int unreadCount;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Icon(icon),
-        if (count > 0)
-          Positioned(
-            top: -6,
-            right: -9,
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 15, minHeight: 15),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-              decoration: const BoxDecoration(
-                color: AppColors.danger,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                count > 9 ? '9+' : '$count',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w700,
-                ),
+    return Semantics(
+      button: true,
+      selected: selected,
+      label:
+          unreadCount > 0 ? '$label, $unreadCount pesan belum dibaca' : label,
+      child: Center(
+        child: Material(
+          color: selected ? const Color(0xFFEEF5FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(13),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(13),
+            child: SizedBox(
+              width: 74,
+              height: 60,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        selected ? activeIcon : icon,
+                        color: selected
+                            ? AppColors.primary
+                            : const Color(0xFF718096),
+                        size: 24,
+                      ),
+                      if (unreadCount > 0)
+                        Positioned(
+                          top: -2,
+                          right: -3,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: AppColors.danger,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: selected
+                                    ? const Color(0xFFEEF5FF)
+                                    : AppColors.surface,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: selected
+                          ? AppColors.primary
+                          : const Color(0xFF718096),
+                      fontSize: 10,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }

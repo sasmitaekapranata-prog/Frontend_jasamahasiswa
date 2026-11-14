@@ -22,19 +22,18 @@ class _BerandaScreenState extends State<BerandaScreen> {
   String _selectedCategory = 'Semua';
   String _searchQuery = '';
 
-  // 1. Variabel penampung data dinamis dari Backend
   List<ServiceItem> _services = [];
   bool _isLoading = true;
 
-  static const _categories = ['Semua', 'Coding', 'Desain', 'Tugas', 'Tutor', 'Ketik'];
+  // Disesuaikan dengan tabel `categories` di phpMyAdmin (1: Coding, 2: Desain, 3: Tugas, 4: Ketik)
+  static const _categories = ['Semua', 'Coding', 'Desain', 'Tugas', 'Ketik'];
 
   @override
   void initState() {
     super.initState();
-    _fetchServices(); // Ambil data saat halaman dimuat
+    _fetchServices();
   }
 
-  // 2. Fungsi untuk mengambil data dari Backend
   Future<void> _fetchServices() async {
     final services = await HomeService().getServices();
     if (mounted) {
@@ -63,21 +62,29 @@ class _BerandaScreenState extends State<BerandaScreen> {
     }
   }
 
+  void _openAiChatbot() {
+    context.push(Routes.aiRecommendation);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 3. Logika Filter Pencarian
     final visibleServices = _services.where((service) {
+      final matchesCategory = _selectedCategory == 'Semua' ||
+          service.namaKategori.toLowerCase() ==
+              _selectedCategory.toLowerCase();
+
       final query = _searchQuery.toLowerCase();
       final matchesSearch = query.isEmpty ||
           service.judul.toLowerCase().contains(query) ||
           service.namaPenjual.toLowerCase().contains(query);
-      return matchesSearch;
+
+      return matchesCategory && matchesSearch;
     }).toList();
 
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 84),
           children: [
             _BrandHeader(onNotificationsPressed: _openNotifications),
             const SizedBox(height: 12),
@@ -185,20 +192,20 @@ class _BerandaScreenState extends State<BerandaScreen> {
             const SizedBox(height: 16),
             const _SectionTitle('REKOMENDASI JASA'),
             const SizedBox(height: 8),
-
-            // 4. Menampilkan Status Loading atau Daftar Jasa
             if (_isLoading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 28),
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (visibleServices.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 28),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 28),
                 child: Center(
                   child: Text(
-                    'Jasa tidak ditemukan.',
-                    style: TextStyle(color: AppColors.textSecondary),
+                    _selectedCategory == 'Semua'
+                        ? 'Jasa tidak ditemukan.'
+                        : 'Belum ada jasa pada kategori $_selectedCategory.',
+                    style: const TextStyle(color: AppColors.textSecondary),
                   ),
                 ),
               )
@@ -214,6 +221,70 @@ class _BerandaScreenState extends State<BerandaScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(right: 4, bottom: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 142,
+              height: 42,
+              child: FilledButton(
+                onPressed: _openAiChatbot,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryDark,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: const StadiumBorder(),
+                  elevation: 2,
+                ),
+                child: const Text(
+                  'Tanya Rekomendasi',
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 7),
+            SizedBox(
+              width: 50,
+              height: 50,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF3B82F6), AppColors.primary],
+                  ),
+                  border: Border.all(color: const Color(0xFF8CB8FF), width: 2),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x332563EB),
+                      blurRadius: 5,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    onTap: _openAiChatbot,
+                    customBorder: const CircleBorder(),
+                    child: const Icon(
+                      Icons.auto_awesome,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -358,27 +429,24 @@ class _ServiceCard extends StatelessWidget {
   final VoidCallback onTap;
 
   IconData _getDynamicIcon() {
-    final title = service.judul.toLowerCase();
-    if (title.contains('web') || title.contains('coding') || title.contains('react')) {
-      return Icons.code;
-    }
-    if (title.contains('desain') || title.contains('ppt') || title.contains('poster')) {
-      return Icons.palette;
-    }
+    final kategori = service.namaKategori.toLowerCase();
+    if (kategori == 'coding') return Icons.code;
+    if (kategori == 'desain') return Icons.palette;
+    if (kategori == 'tugas' || kategori == 'ketik') return Icons.description;
     return Icons.insert_chart;
   }
 
   Color _getDynamicIconColor() {
-    final title = service.judul.toLowerCase();
-    if (title.contains('web') || title.contains('coding')) return AppColors.primary;
-    if (title.contains('desain') || title.contains('ppt')) return const Color(0xFFF59E0B);
+    final kategori = service.namaKategori.toLowerCase();
+    if (kategori == 'coding') return AppColors.primary;
+    if (kategori == 'desain') return const Color(0xFFF59E0B);
     return const Color(0xFF16A34A);
   }
 
   Color _getDynamicBgColor() {
-    final title = service.judul.toLowerCase();
-    if (title.contains('web') || title.contains('coding')) return const Color(0xFFEEF5FF);
-    if (title.contains('desain') || title.contains('ppt')) return const Color(0xFFFFF3C4);
+    final kategori = service.namaKategori.toLowerCase();
+    if (kategori == 'coding') return const Color(0xFFEEF5FF);
+    if (kategori == 'desain') return const Color(0xFFFFF3C4);
     return const Color(0xFFDCFCE7);
   }
 
@@ -392,7 +460,6 @@ class _ServiceCard extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              // BAGIAN 1: Thumbnail Foto Sampul (atau Ikon Default jika null)
               Container(
                 width: 64,
                 height: 64,
@@ -473,10 +540,6 @@ class _ServiceCard extends StatelessWidget {
   }
 }
 
-// -------------------------------------------------------------
-// MODEL & SERVICE BACKEND
-// -------------------------------------------------------------
-
 class ServiceItem {
   final String id;
   final String judul;
@@ -484,7 +547,8 @@ class ServiceItem {
   final double rating;
   final int reviewCount;
   final String namaPenjual;
-  final String? bannerUrl; // BAGIAN 2: Field bannerUrl ditambahkan di sini
+  final String namaKategori;
+  final String? bannerUrl;
 
   ServiceItem({
     required this.id,
@@ -493,15 +557,33 @@ class ServiceItem {
     required this.rating,
     required this.reviewCount,
     required this.namaPenjual,
+    required this.namaKategori,
     this.bannerUrl,
   });
 
-  // Menggabungkan domain server dengan path '/uploads/...'
   String? get fullBannerUrl {
     if (bannerUrl == null || bannerUrl!.isEmpty) return null;
     if (bannerUrl!.startsWith('http')) return bannerUrl;
     final serverRoot = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
     return '$serverRoot$bannerUrl';
+  }
+
+  static String _resolveCategoryName(Map<String, dynamic> json) {
+    final rawName = json['nama_kategori']?.toString().trim();
+    if (rawName != null && rawName.isNotEmpty) return rawName;
+
+    switch (int.tryParse(json['category_id']?.toString() ?? '')) {
+      case 1:
+        return 'Coding';
+      case 2:
+        return 'Desain';
+      case 3:
+        return 'Tugas';
+      case 4:
+        return 'Ketik';
+      default:
+        return 'Lainnya';
+    }
   }
 
   factory ServiceItem.fromJson(Map<String, dynamic> json) {
@@ -520,6 +602,7 @@ class ServiceItem {
           : 0.0,
       reviewCount: json['review_count'] ?? 0,
       namaPenjual: json['nama_penjual'] ?? 'Anonim',
+      namaKategori: _resolveCategoryName(json),
       bannerUrl: json['banner_url'],
     );
   }
