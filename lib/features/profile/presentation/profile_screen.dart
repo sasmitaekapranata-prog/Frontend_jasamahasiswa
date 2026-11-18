@@ -1,14 +1,20 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
+import '../../../core/utils/api_config.dart';
+import '../../../core/utils/formatters.dart';
+import '../../auth/services/auth_service.dart';
+import '../../auth/services/order_service.dart';
 import '../../dashboard/presentation/order_payment.dart';
+import '../controllers/seller_profile_store.dart';
+import '../controllers/seller_wallet_store.dart';
 import '../controllers/user_role_controller.dart';
-// Tambahkan import AuthService Anda di sini
-import '../../auth/services/auth_service.dart'; 
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -19,40 +25,81 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final _roleController = UserRoleController.instance;
-  
-  // 1. Tambahkan variabel untuk menampung nama dan inisial
+
   String _nama = 'Memuat...';
-  String _inisial = '-';
+  String _jurusan = 'Mahasiswa Aktif';
+  String _fotoUrl = '';
 
   @override
   void initState() {
     super.initState();
-    _loadUserData(); // Panggil fungsi saat layar dibuka
+    SellerWalletStore.instance.syncFromBackend();
+    _loadUserData();
   }
 
-  // 2. Fungsi mengambil data dari SharedPreferences
-  Future<void> _loadUserData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? userDataString = prefs.getString('user_data');
+  String _buildInitials(String nama) {
+    final nameParts = nama
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .take(2)
+        .map((p) => p[0].toUpperCase())
+        .join();
+    return nameParts.isEmpty ? 'M' : nameParts;
+  }
 
-    if (userDataString != null) {
-      final userData = jsonDecode(userDataString);
-      final nama = userData['nama'] ?? 'Arif Setiawan';
-      
-      // Logika membuat inisial (misal: "Alfa Fatimatuzahro" jadi "AF")
-      List<String> nameParts = nama.split(' ');
-      String inisial = '';
-      if (nameParts.isNotEmpty) {
-        inisial += nameParts[0][0]; // Huruf pertama kata pertama
-        if (nameParts.length > 1) {
-          inisial += nameParts[1][0]; // Huruf pertama kata kedua
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userDataString = prefs.getString('user_data');
+
+    if (userDataString != null && userDataString.isNotEmpty) {
+      final userData = jsonDecode(userDataString) as Map<String, dynamic>;
+      final nama = (userData['nama'] ?? 'Mahasiswa').toString().trim();
+      final jurusan = (userData['jurusan'] ?? '').toString().trim();
+      final foto = (userData['foto_url'] ?? '').toString().trim();
+      if (mounted) {
+        setState(() {
+          _nama = nama.isEmpty ? 'Mahasiswa' : nama;
+          if (jurusan.isNotEmpty) _jurusan = jurusan;
+                if (foto.isNotEmpty) _fotoUrl = foto;
+          if (foto.isNotEmpty) _fotoUrl = foto;
+        });
+      }
+    }
+
+    // Sinkronkan juga data terbaru langsung dari backend MySQL
+    try {
+      final userId = await OrderService.getLoggedInUserId();
+      if (userId > 0) {
+        final url = Uri.parse('${ApiConfig.baseUrl}/users/$userId/profile');
+        final response = await http.get(url);
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          final remoteUser = decoded['data'] as Map<String, dynamic>?;
+          if (remoteUser != null) {
+            final nama = (remoteUser['nama'] ?? _nama).toString().trim();
+            final jurusan = (remoteUser['jurusan'] ?? '').toString().trim();
+            final foto = (remoteUser['foto_url'] ?? '').toString().trim();
+
+            final mergedUser = userDataString != null && userDataString.isNotEmpty
+                ? Map<String, dynamic>.from(jsonDecode(userDataString))
+                : <String, dynamic>{};
+            mergedUser.addAll(remoteUser);
+            await prefs.setString('user_data', jsonEncode(mergedUser));
+
+            if (mounted) {
+              setState(() {
+                _nama = nama.isEmpty ? _nama : nama;
+                      if (jurusan.isNotEmpty) _jurusan = jurusan;
+                if (foto.isNotEmpty) _fotoUrl = foto;
+          if (foto.isNotEmpty) _fotoUrl = foto;
+              });
+            }
+          }
         }
       }
-
-      setState(() {
-        _nama = nama;
-        _inisial = inisial.toUpperCase();
-      });
+    } catch (e) {
+      debugPrint('Error sync profile screen: $e');
     }
   }
 
@@ -141,11 +188,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
 
-    // 3. Panggil AuthService.logout() di sini jika user klik "Ya"
     if (shouldSignOut == true && mounted) {
-      await AuthService().logout(); // Menghapus token dari memori
+      await AuthService().logout();
       if (mounted) {
-        context.go(Routes.login); // Ubah Routes.landing menjadi Routes.login agar diarahkan ke login
+        context.go(Routes.login);
       }
     }
   }
@@ -158,125 +204,144 @@ class _ProfileScreenState extends State<ProfileScreen> {
           animation: Listenable.merge([
             _roleController,
             BuyerOrderStore.instance,
+            SellerProfileStore.instance,
           ]),
           builder: (context, _) {
             final isSeller = _roleController.selectedRole == UserRole.penjual;
             final orderStore = BuyerOrderStore.instance;
+            final profileStore = SellerProfileStore.instance;
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                const _BrandHeader(),
-                const SizedBox(height: 14),
-                // 4. Kirim variabel _nama dan _inisial ke dalam widget _ProfileCard
-                _ProfileCard(isSeller: isSeller, nama: _nama, inisial: _inisial),
-                const SizedBox(height: 10),
-                _RoleSwitcher(
-                  isSeller: isSeller,
-                  onRoleChanged: (role) => _roleController.setRole(role),
-                ),
-                const SizedBox(height: 12),
-                if (isSeller) ...[
-                  _BalanceCard(
-                    onWithdraw: () => context.go(Routes.withdrawSaldo),
+            final displayName = _nama;
+            final displayInitials = _buildInitials(displayName);
+            final displayJurusan = _jurusan.isNotEmpty
+                ? _jurusan
+                : (profileStore.program.isNotEmpty
+                    ? profileStore.program
+                    : 'Mahasiswa Aktif');
+
+            return RefreshIndicator(
+              onRefresh: _loadUserData,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  const _BrandHeader(),
+                  const SizedBox(height: 14),
+                  _ProfileCard(
+                    isSeller: isSeller,
+                    nama: displayName,
+                    inisial: displayInitials,
+                    jurusan: displayJurusan,
+                    photoBytes: profileStore.photoBytes,
+                    photoUrl: _fotoUrl,
                   ),
                   const SizedBox(height: 10),
-                  SizedBox(
-                    height: 42,
-                    child: FilledButton.icon(
-                      onPressed: () => context.push(Routes.createService),
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Buka Penawaran Jasa Baru'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
+                  _RoleSwitcher(
+                    isSeller: isSeller,
+                    onRoleChanged: (role) => _roleController.setRole(role),
                   ),
                   const SizedBox(height: 12),
-                  _OptionsCard(
-                    options: [
-                      _ProfileOption(
-                        title: 'Edit Profil',
-                        subtitle: 'Edit Profil dan data diri kamu',
-                        onTap: () =>
-                            context.go(Routes.editProfile, extra: isSeller),
-                      ),
-                      _ProfileOption(
-                        title: 'Pesanan Masuk',
-                        subtitle: 'Perlu Segera kamu kerjakan',
-                        badge: orderStore.sellerUnreadCount == 0
-                            ? null
-                            : '${orderStore.sellerUnreadCount}',
-                        onTap: () => context.go(Routes.incomingOrders),
-                      ),
-                      _ProfileOption(
-                        title: 'Kelola Jasa',
-                        subtitle: 'Edit Jasa dan Hapus',
-                        onTap: () => context.go(Routes.manageServices),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  _OptionsCard(
-                    options: [
-                      _ProfileOption(
-                        title: 'Edit Profil',
-                        subtitle: 'Edit Profil dan Data Diri Kamu',
-                        onTap: () =>
-                            context.go(Routes.editProfile, extra: isSeller),
-                      ),
-                      _ProfileOption(
-                        title: 'Pesanan Saya',
-                        badge: orderStore.buyerUnreadCount == 0
-                            ? null
-                            : '${orderStore.buyerUnreadCount}',
-                        onTap: () => context.go(Routes.statusPesanan),
-                      ),
-                      _ProfileOption(
-                        title: 'Pusat Bantuan',
-                        onTap: () => context.push(Routes.helpCenter),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 56),
-                OutlinedButton(
-                  onPressed: _confirmSignOut,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(color: Color(0xFFFFE5E5)),
-                    backgroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 13,
+                  if (isSeller) ...[
+                    _BalanceCard(
+                      onWithdraw: () => context.go(Routes.withdrawSaldo),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                  ),
-                  child: const Row(
-                    children: [
-                      Text(
-                        'Keluar dari Akun',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 42,
+                      child: FilledButton.icon(
+                        onPressed: () => context.push(Routes.createService),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Buka Penawaran Jasa Baru'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
-                      Spacer(),
-                      Icon(Icons.arrow_forward, size: 16),
-                    ],
+                    ),
+                    const SizedBox(height: 12),
+                    _OptionsCard(
+                      options: [
+                        _ProfileOption(
+                          title: 'Edit Profil',
+                          subtitle: 'Edit Profil dan data diri kamu',
+                          onTap: () =>
+                              context.go(Routes.editProfile, extra: isSeller),
+                        ),
+                        _ProfileOption(
+                          title: 'Pesanan Masuk',
+                          subtitle: 'Perlu Segera kamu kerjakan',
+                          badge: orderStore.sellerUnreadCount == 0
+                              ? null
+                              : '${orderStore.sellerUnreadCount}',
+                          onTap: () => context.go(Routes.incomingOrders),
+                        ),
+                        _ProfileOption(
+                          title: 'Kelola Jasa',
+                          subtitle: 'Edit Jasa dan Hapus',
+                          onTap: () => context.go(Routes.manageServices),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    _OptionsCard(
+                      options: [
+                        _ProfileOption(
+                          title: 'Edit Profil',
+                          subtitle: 'Edit Profil dan Data Diri Kamu',
+                          onTap: () =>
+                              context.go(Routes.editProfile, extra: isSeller),
+                        ),
+                        _ProfileOption(
+                          title: 'Pesanan Saya',
+                          badge: orderStore.buyerUnreadCount == 0
+                              ? null
+                              : '${orderStore.buyerUnreadCount}',
+                          onTap: () => context.go(Routes.statusPesanan),
+                        ),
+                        _ProfileOption(
+                          title: 'Pusat Bantuan',
+                          onTap: () => context.push(Routes.helpCenter),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 56),
+                  OutlinedButton(
+                    onPressed: _confirmSignOut,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.danger,
+                      side: const BorderSide(color: Color(0xFFFFE5E5)),
+                      backgroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Text(
+                          'Keluar dari Akun',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Spacer(),
+                        Icon(Icons.arrow_forward, size: 16),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -339,17 +404,22 @@ class _BrandIcon extends StatelessWidget {
   }
 }
 
-// 5. Modifikasi _ProfileCard agar menerima parameter nama dan inisial
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.isSeller,
     required this.nama,
     required this.inisial,
+    required this.jurusan,
+    this.photoBytes,
+    this.photoUrl = '',
   });
 
   final bool isSeller;
   final String nama;
   final String inisial;
+  final String jurusan;
+  final Uint8List? photoBytes;
+  final String photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -361,57 +431,66 @@ class _ProfileCard extends StatelessWidget {
             CircleAvatar(
               radius: 23,
               backgroundColor: const Color(0xFFDCEAFF),
-              child: Text(
-                inisial, // Menggunakan inisial dinamis
-                style: const TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              backgroundImage: photoBytes != null
+                  ? MemoryImage(photoBytes!)
+                  : (photoUrl.isNotEmpty
+                      ? NetworkImage(photoUrl.startsWith('http') ? photoUrl : '${ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '')}$photoUrl') as ImageProvider
+                      : null),
+              child: (photoBytes == null && photoUrl.isEmpty)
+                  ? Text(
+                      inisial,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  : null,
             ),
             const SizedBox(width: 11),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  nama, // Menggunakan nama dinamis
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                const Text(
-                  'S1 Teknik Informatika',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSeller
-                        ? const Color(0xFFDCFCE7)
-                        : const Color(0xFFE5EEFF),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    isSeller ? '● Lapak Siap Terima' : '✓ Mahasiswa Aktif',
-                    style: TextStyle(
-                      color: isSeller ? AppColors.success : AppColors.primary,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w600,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nama,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    jurusan,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSeller
+                          ? const Color(0xFFDCFCE7)
+                          : const Color(0xFFE5EEFF),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      isSeller ? '● Lapak Siap Terima' : '✓ Mahasiswa Aktif',
+                      style: TextStyle(
+                        color: isSeller ? AppColors.success : AppColors.primary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -497,61 +576,65 @@ class _BalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'SALDO PENDAPATAN JASA',
-                  style: TextStyle(
-                    color: Color(0xFFCBD5E1),
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
+    final wallet = SellerWalletStore.instance;
+    return AnimatedBuilder(
+      animation: wallet,
+      builder: (context, _) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'SALDO PENDAPATAN JASA',
+                    style: TextStyle(
+                      color: Color(0xFFCBD5E1),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                SizedBox(height: 5),
-                Text(
-                  'Rp 1.450.000',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
+                  const SizedBox(height: 5),
+                  Text(
+                    Formatters.currency(wallet.balance),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  '▲ +Rp 250.000 minggu ini',
-                  style: TextStyle(
-                    color: Color(0xFF34D399),
-                    fontSize: 9,
-                    fontWeight: FontWeight.w600,
+                  const SizedBox(height: 2),
+                  Text(
+                    '▲ +${Formatters.currency(wallet.incomeLastSevenDays)} minggu ini',
+                    style: const TextStyle(
+                      color: Color(0xFF34D399),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: onWithdraw,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
-              textStyle: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
+                ],
               ),
             ),
-            child: const Text('Tarik Saldo'),
-          ),
-        ],
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: onWithdraw,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                textStyle: const TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              child: const Text('Tarik Saldo'),
+            ),
+          ],
+        ),
       ),
     );
   }

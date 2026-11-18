@@ -20,9 +20,9 @@ class WithdrawSaldoScreen extends StatefulWidget {
 class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
   static const _transferFee = 2500;
 
-  final _amountController = TextEditingController(text: '1000000');
+  final _amountController = TextEditingController(text: '0');
   final _wallet = SellerWalletStore.instance;
-  _TransactionFilter _filter = _TransactionFilter.withdrawal;
+  _TransactionFilter _filter = _TransactionFilter.all;
   SellerWalletTransaction? _latestWithdrawal;
   bool _showSuccess = false;
 
@@ -43,6 +43,17 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
   void initState() {
     super.initState();
     _amountController.addListener(_onAmountChanged);
+    _loadWallet();
+  }
+
+  Future<void> _loadWallet() async {
+    await _wallet.syncFromBackend();
+    if (!mounted) return;
+    if (_amount == 0 && _wallet.balance > 0) {
+      _setAmount(_wallet.balance);
+    } else {
+      setState(() {});
+    }
   }
 
   @override
@@ -99,7 +110,7 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
     if (confirmed != true || !mounted) return;
 
     try {
-      final withdrawal = _wallet.withdraw(amount: amount, fee: fee);
+      final withdrawal = await _wallet.submitWithdrawToBackend(amount: amount, fee: fee);
       setState(() {
         _latestWithdrawal = withdrawal;
         _showSuccess = true;
@@ -254,10 +265,7 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
         backgroundColor: AppColors.background,
         appBar: AppBar(
           leading: const AppBackButton(fallbackLocation: Routes.profil),
-          title: const Text(
-            'Riwayat & Tarik Saldo',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
+          title: const Text('Riwayat & Tarik Saldo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)), actions: [IconButton(tooltip: 'Muat Ulang Saldo', onPressed: _loadWallet, icon: const Icon(Icons.refresh))],
           backgroundColor: AppColors.surface,
           surfaceTintColor: Colors.transparent,
         ),
@@ -276,14 +284,14 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
                       minimum: SellerWalletStore.minimumWithdrawal,
                     ),
                     const SizedBox(height: 18),
-                    _SectionLabel('Catatan Transaksi'),
+                    const _SectionLabel('Catatan Transaksi'),
                     const SizedBox(height: 8),
                     _TransactionFilters(
                       selected: _filter,
                       onChanged: (filter) => setState(() => _filter = filter),
                     ),
                     const SizedBox(height: 18),
-                    _SectionLabel('Rekening Tujuan'),
+                    const _SectionLabel('Rekening Tujuan'),
                     const SizedBox(height: 8),
                     _BankAccountCard(
                       bankName: _bankName,
@@ -292,7 +300,7 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
                       onEdit: _editBankAccount,
                     ),
                     const SizedBox(height: 18),
-                    _SectionLabel('Nominal Penarikan'),
+                    const _SectionLabel('Nominal Penarikan'),
                     const SizedBox(height: 8),
                     _AmountInput(
                       controller: _amountController,
@@ -316,7 +324,7 @@ class _WithdrawSaldoScreenState extends State<WithdrawSaldoScreen> {
                       ),
                     ],
                     const SizedBox(height: 18),
-                    _SectionLabel('Rincian Transaksi'),
+                    const _SectionLabel('Rincian Transaksi'),
                     const SizedBox(height: 8),
                     _WithdrawalBreakdown(
                       amount: _amount,
@@ -650,9 +658,9 @@ class _AmountPresets extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final presets = [
+      (25000, 'Rp 25rb'),
+      (50000, 'Rp 50rb'),
       (100000, 'Rp 100rb'),
-      (500000, 'Rp 500rb'),
-      (1000000, 'Rp 1jt'),
       (balance, 'Tarik Semua'),
     ];
     return Row(
@@ -919,7 +927,7 @@ class _TransactionHistory extends StatelessWidget {
                           const SizedBox(height: 3),
                           Text(
                             '${Formatters.shortDate(transaction.createdAt)} • '
-                            '${transaction.type == WalletTransactionType.income ? 'Berhasil' : 'Menunggu proses'}',
+                            '${transaction.type == WalletTransactionType.income ? 'Berhasil' : 'Berhasil'}',
                             style: const TextStyle(
                               color: AppColors.textSecondary,
                               fontSize: 9,
@@ -1239,11 +1247,11 @@ class _WithdrawalSuccessScreen extends StatelessWidget {
                           valueColor: AppColors.success,
                         ),
                         const Divider(height: 22),
-                        _DetailRow(
+                        const _DetailRow(
                           label: 'Status',
-                          value: 'Menunggu proses',
+                          value: 'Berhasil',
                           emphasized: true,
-                          valueColor: const Color(0xFFB45309),
+                          valueColor: Color(0xFFB45309),
                         ),
                         const SizedBox(height: 8),
                         const Text(
@@ -1462,10 +1470,10 @@ class _ReceiptSheet extends StatelessWidget {
                   const SizedBox(height: 9),
                   _DetailRow(label: 'ID transaksi', value: withdrawal.id),
                   const SizedBox(height: 9),
-                  _DetailRow(
+                  const _DetailRow(
                     label: 'Status',
-                    value: 'Menunggu proses',
-                    valueColor: const Color(0xFFB45309),
+                    value: 'Berhasil',
+                    valueColor: Color(0xFFB45309),
                   ),
                 ],
               ),

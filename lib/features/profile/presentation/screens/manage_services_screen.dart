@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/routes/route_names.dart';
 import '../../../../app/theme/app_colors.dart';
+import '../../../../core/utils/api_config.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/app_back_button.dart';
 import '../../controllers/seller_service_store.dart';
@@ -19,6 +20,12 @@ class ManageServicesScreen extends StatefulWidget {
 class _ManageServicesScreenState extends State<ManageServicesScreen> {
   final _store = SellerServiceStore.instance;
   _ServiceFilter _filter = _ServiceFilter.all;
+
+  @override
+  void initState() {
+    super.initState();
+    _store.syncFromBackend();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,21 +65,34 @@ class _ManageServicesScreenState extends State<ManageServicesScreen> {
                 onSelected: (filter) => setState(() => _filter = filter),
               ),
               Expanded(
-                child: filteredServices.isEmpty
-                    ? const _EmptyServices()
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                        itemCount: filteredServices.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 12),
-                        itemBuilder: (context, index) => _ServiceCard(
-                          service: filteredServices[index],
-                          onToggle: () => _toggle(filteredServices[index]),
-                          onEdit: () => _edit(filteredServices[index]),
-                          onDelete: () => _delete(filteredServices[index]),
-                          onDetails: () =>
-                              _showDetails(filteredServices[index]),
-                        ),
+                child: _store.isLoading && services.isEmpty
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: _store.syncFromBackend,
+                        child: filteredServices.isEmpty
+                            ? ListView(
+                                children: const [
+                                  SizedBox(height: 120),
+                                  _EmptyServices(),
+                                ],
+                              )
+                            : ListView.separated(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                                itemCount: filteredServices.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) => _ServiceCard(
+                                  service: filteredServices[index],
+                                  onToggle: () =>
+                                      _toggle(filteredServices[index]),
+                                  onEdit: () => _edit(filteredServices[index]),
+                                  onDelete: () =>
+                                      _delete(filteredServices[index]),
+                                  onDetails: () =>
+                                      _showDetails(filteredServices[index]),
+                                ),
+                              ),
                       ),
               ),
             ],
@@ -97,11 +117,23 @@ class _ManageServicesScreenState extends State<ManageServicesScreen> {
     return services.where((service) => service.status == status).length;
   }
 
-  void _toggle(SellerService service) {
+  Future<void> _toggle(SellerService service) async {
     final nextStatus = service.status == SellerServiceStatus.active
         ? SellerServiceStatus.inactive
         : SellerServiceStatus.active;
-    _store.setStatus(service.id, nextStatus);
+    final ok = await _store.toggleStatusRemote(service.id, nextStatus);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? (nextStatus == SellerServiceStatus.active
+                  ? 'Jasa diaktifkan kembali.'
+                  : 'Jasa dinonaktifkan sementara.')
+              : 'Gagal mengubah status jasa.',
+        ),
+      ),
+    );
   }
 
   Future<void> _edit(SellerService service) async {
@@ -110,6 +142,9 @@ class _ManageServicesScreenState extends State<ManageServicesScreen> {
         builder: (_) => CreateServiceScreen(service: service),
       ),
     );
+    if (mounted) {
+      await _store.syncFromBackend();
+    }
   }
 
   Future<void> _delete(SellerService service) async {
@@ -117,7 +152,7 @@ class _ManageServicesScreenState extends State<ManageServicesScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Hapus jasa?'),
-        content: Text('Jasa "${service.title}" akan dihapus dari daftar.'),
+        content: Text('Jasa "${service.title}" akan dihapus dari database.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -132,9 +167,12 @@ class _ManageServicesScreenState extends State<ManageServicesScreen> {
       ),
     );
     if (confirmed == true && mounted) {
-      _store.delete(service.id);
+      final err = await _store.deleteRemote(service.id);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Jasa berhasil dihapus.')),
+        SnackBar(
+          content: Text(err ?? 'Jasa berhasil dihapus dari database.'),
+        ),
       );
     }
   }
@@ -254,12 +292,23 @@ class _ServiceCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onDetails;
 
+  String _resolveBannerUrl(String raw) {
+    final clean = raw.trim();
+    if (clean.isEmpty) return '';
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      return clean;
+    }
+    final hostBase = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    return '$hostBase$clean';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isActive = service.status == SellerServiceStatus.active;
     final canToggle =
         isActive || service.status == SellerServiceStatus.inactive;
     final color = _categoryColor(service.category);
+    final resolvedBanner = _resolveBannerUrl(service.bannerUrl);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -280,15 +329,25 @@ class _ServiceCard extends StatelessWidget {
                   color: color.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: service.coverBytes == null
-                    ? Icon(_categoryIcon(service.category), color: color)
-                    : ClipRRect(
+                child: service.coverBytes != null
+                    ? ClipRRect(
                         borderRadius: BorderRadius.circular(11),
                         child: Image.memory(
                           service.coverBytes!,
                           fit: BoxFit.cover,
                         ),
-                      ),
+                      )
+                    : (resolvedBanner.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(11),
+                            child: Image.network(
+                              resolvedBanner,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  Icon(_categoryIcon(service.category), color: color),
+                            ),
+                          )
+                        : Icon(_categoryIcon(service.category), color: color)),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -316,81 +375,42 @@ class _ServiceCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Terjual: ${service.salesCount}x  •  Rating: ⭐ ${service.rating}',
+                      'Terjual: ${service.salesCount}x  •  Rating: ★ ${service.rating}',
                       style: const TextStyle(
                         color: AppColors.textSecondary,
-                        fontSize: 9,
+                        fontSize: 10,
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    _StatusBadge(status: service.status),
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              _StatusBadge(status: service.status),
             ],
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (canToggle) ...[
+                _ActionButton(
+                  label: isActive ? 'Nonaktifkan' : 'Aktifkan',
+                  onPressed: onToggle,
+                ),
+                const SizedBox(width: 6),
+              ],
+              _ActionButton(label: 'Edit', onPressed: onEdit),
+              const SizedBox(width: 6),
+              _ActionButton(label: 'Detail', onPressed: onDetails),
+              const Spacer(),
+              _ActionButton(
+                label: 'Hapus',
+                onPressed: onDelete,
+                isDestructive: true,
+              ),
+            ],
           ),
-          if (canToggle)
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Tampilkan Layanan',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-                Switch.adaptive(
-                  value: isActive,
-                  onChanged: (_) => onToggle(),
-                  activeThumbColor: AppColors.primary,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                const SizedBox(width: 4),
-                _ActionButton(label: 'Edit', onPressed: onEdit),
-                const SizedBox(width: 6),
-                _ActionButton(
-                  label: 'Hapus',
-                  onPressed: onDelete,
-                  isDestructive: true,
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    service.status == SellerServiceStatus.underReview
-                        ? 'Sedang diverifikasi tim moderasi'
-                        : 'Jasa tersimpan sebagai draft',
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 9,
-                    ),
-                  ),
-                ),
-                _ActionButton(
-                  label: service.status == SellerServiceStatus.draft
-                      ? 'Edit'
-                      : 'Detail',
-                  onPressed: service.status == SellerServiceStatus.draft
-                      ? onEdit
-                      : onDetails,
-                ),
-                const SizedBox(width: 6),
-                _ActionButton(
-                  label: 'Hapus',
-                  onPressed: onDelete,
-                  isDestructive: true,
-                ),
-              ],
-            ),
         ],
       ),
     );
@@ -521,8 +541,8 @@ String _statusLabel(SellerServiceStatus status) {
 Color _categoryColor(String category) {
   return switch (category) {
     'Desain' => const Color(0xFF9333EA),
-    'Akademik' => const Color(0xFF16A34A),
-    'Penulisan' => const Color(0xFFF59E0B),
+    'Akademik' || 'Tugas' => const Color(0xFF16A34A),
+    'Penulisan' || 'Ketik' => const Color(0xFFF59E0B),
     _ => AppColors.primary,
   };
 }
@@ -530,8 +550,8 @@ Color _categoryColor(String category) {
 IconData _categoryIcon(String category) {
   return switch (category) {
     'Desain' => Icons.palette_outlined,
-    'Akademik' => Icons.school_outlined,
-    'Penulisan' => Icons.edit_note_outlined,
+    'Akademik' || 'Tugas' => Icons.school_outlined,
+    'Penulisan' || 'Ketik' => Icons.edit_note_outlined,
     _ => Icons.code,
   };
 }

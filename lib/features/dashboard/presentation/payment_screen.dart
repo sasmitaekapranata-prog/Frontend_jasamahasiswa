@@ -5,16 +5,76 @@ import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../core/widgets/app_back_button.dart';
 import '../../../core/utils/formatters.dart';
+import '../../auth/services/order_service.dart';
 import 'order_payment.dart';
 
-class PaymentScreen extends StatelessWidget {
+class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key, this.payment});
 
   final OrderPayment? payment;
 
   @override
+  State<PaymentScreen> createState() => _PaymentScreenState();
+}
+
+class _PaymentScreenState extends State<PaymentScreen> {
+  bool _isSubmitting = false;
+
+  Future<void> _handleConfirmPayment(OrderPayment order) async {
+    if (_isSubmitting) return;
+    setState(() => _isSubmitting = true);
+
+    try {
+      final result = await OrderService.createOrder(
+        serviceId: order.service.id,
+        totalHarga: order.total,
+        catatan: order.brief,
+        metodePembayaran: order.paymentMethod,
+      );
+
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        final backendData = result['data'];
+        final backendCode = backendData is Map
+            ? backendData['order_code']?.toString()
+            : null;
+
+        final confirmedOrder = BuyerOrderStore.instance.confirmPayment(
+          order,
+          backendOrderCode: backendCode,
+        );
+
+        context.go(
+          Routes.paymentSuccess,
+          extra: confirmedOrder,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result['message']?.toString() ?? 'Gagal memproses pesanan.',
+            ),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Terjadi kesalahan jaringan: $e'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final order = payment;
+    final order = widget.payment;
     if (order == null) {
       return Scaffold(
         appBar: AppBar(
@@ -170,11 +230,11 @@ class PaymentScreen extends StatelessWidget {
             ),
             child: Column(
               children: [
-                _InstructionRow(
+                const _InstructionRow(
                   number: '1',
                   text: 'Buka aplikasi E-Wallet atau Mobile Banking kamu.',
                 ),
-                _InstructionRow(
+                const _InstructionRow(
                   number: '2',
                   text: 'Pilih menu Scan / Bayar QRIS lalu arahkan kamera.',
                 ),
@@ -203,22 +263,28 @@ class PaymentScreen extends StatelessWidget {
                 height: 48,
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    final confirmedOrder =
-                        BuyerOrderStore.instance.confirmPayment(order);
-                    context.go(
-                      Routes.paymentSuccess,
-                      extra: confirmedOrder,
-                    );
-                  },
-                  child: const Text(
-                    'Cek Status Pembayaran',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
+                  onPressed: _isSubmitting
+                      ? null
+                      : () => _handleConfirmPayment(order),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Cek Status Pembayaran',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
                 ),
               ),
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: _isSubmitting
+                    ? null
+                    : () => Navigator.of(context).pop(),
                 child: const Text(
                   'Ubah Metode Pembayaran',
                   style: TextStyle(

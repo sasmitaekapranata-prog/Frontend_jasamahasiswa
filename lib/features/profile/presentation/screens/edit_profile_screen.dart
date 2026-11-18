@@ -1,12 +1,17 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../../app/theme/app_colors.dart';
 import '../../../../app/routes/route_names.dart';
+import '../../../../app/theme/app_colors.dart';
+import '../../../../core/utils/api_config.dart';
 import '../../../../core/widgets/app_back_button.dart';
+import '../../../auth/services/order_service.dart';
 import '../../controllers/seller_profile_store.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -19,17 +24,16 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  final _nameController = TextEditingController(text: 'Arif Setiawan');
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _universityController = TextEditingController();
-  final _programController = TextEditingController(
-    text: 'S1 Teknik Informatika',
-  );
+  final _programController = TextEditingController();
   final _bioController = TextEditingController();
   final _nimController = TextEditingController();
   final _gpaController = TextEditingController();
   final _sellerProfile = SellerProfileStore.instance;
+
   static const _defaultSkills = [
     'Coding',
     'Desain',
@@ -41,38 +45,124 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     'Python',
     'Skripsi',
   ];
-  late final List<String> _availableSkills;
-  late final List<String> _selectedSkills;
-  late final List<String> _customSkills;
+
+  late List<String> _availableSkills;
+  late List<String> _selectedSkills;
+  late List<String> _customSkills;
   Uint8List? _photoBytes;
   String? _photoName;
+  String _remotePhotoUrl = '';
+  String _remoteKtmUrl = '';
+  String _verificationStatus = 'pending';
+  String _verificationNote = '';
   Uint8List? _studentCardBytes;
   String? _studentCardName;
   bool _isPickingPhoto = false;
   bool _isPickingStudentCard = false;
+  bool _isLoadingProfile = true;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     final profile = _sellerProfile;
-    if (widget.isSeller) {
-      _nameController.text = profile.name;
-      _phoneController.text = profile.phone;
-      _universityController.text = profile.university;
-      _programController.text = profile.program;
-      _bioController.text = profile.bio;
-      _nimController.text = profile.nim;
-      _gpaController.text = profile.gpa;
-      _photoBytes = profile.photoBytes;
-      _photoName = profile.photoName;
-      _studentCardBytes = profile.studentCardBytes;
-      _studentCardName = profile.studentCardName;
-    }
+    _photoBytes = profile.photoBytes;
+    _photoName = profile.photoName;
+    _studentCardBytes = profile.studentCardBytes;
+    _studentCardName = profile.studentCardName;
     _customSkills = [...profile.customSkills];
-    _availableSkills = [..._defaultSkills, ..._customSkills, ...profile.skills]
-        .toSet()
-        .toList();
+    _availableSkills = <String>{
+      ..._defaultSkills,
+      ..._customSkills,
+      ...profile.skills,
+    }.toList();
     _selectedSkills = [...profile.skills];
+
+    _loadProfileFromBackend();
+  }
+
+  Future<void> _loadProfileFromBackend() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawUser = prefs.getString('user_data');
+      if (rawUser != null && rawUser.isNotEmpty) {
+        final localUser = jsonDecode(rawUser) as Map<String, dynamic>;
+        _applyUserData(localUser);
+      }
+
+      final userId = await OrderService.getLoggedInUserId();
+      if (userId > 0) {
+        final url = Uri.parse('${ApiConfig.baseUrl}/users/$userId/profile');
+        final response = await http.get(url);
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+          final remoteUser = decoded['data'] as Map<String, dynamic>?;
+          if (remoteUser != null && mounted) {
+            _applyUserData(remoteUser);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error load profile: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingProfile = false);
+      }
+    }
+  }
+
+  void _applyUserData(Map<String, dynamic> data) {
+    final nama = (data['nama'] ?? '').toString().trim();
+    final email = (data['email'] ?? '').toString().trim();
+    final noHp = (data['no_hp'] ?? '').toString().trim();
+    final universitas = (data['universitas'] ?? '').toString().trim();
+    final jurusan = (data['jurusan'] ?? '').toString().trim();
+    final nim = (data['nim'] ?? '').toString().trim();
+    final ipk = (data['ipk'] ?? '').toString().trim();
+    final bio = (data['bio'] ?? '').toString().trim();
+    final keahlianRaw = (data['keahlian'] ?? '').toString().trim();
+    final fotoUrl = (data['foto_url'] ?? '').toString().trim();
+    final hostBase = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+
+    if (fotoUrl.isNotEmpty) {
+      _remotePhotoUrl = fotoUrl.startsWith('http') ? fotoUrl : '$hostBase$fotoUrl';
+    }
+    final ktmUrl = (data['ktm_url'] ?? '').toString().trim();
+    if (ktmUrl.isNotEmpty) {
+      _remoteKtmUrl = ktmUrl.startsWith('http') ? ktmUrl : '$hostBase$ktmUrl';
+      _studentCardName ??= ktmUrl.split('/').last;
+    }
+    final statusVerif = (data['status_verifikasi'] ?? '').toString().trim();
+    if (statusVerif.isNotEmpty) {
+      _verificationStatus = statusVerif;
+    }
+    _verificationNote = (data['catatan_verifikasi'] ?? '').toString().trim();
+
+    if (nama.isNotEmpty) _nameController.text = nama;
+    if (email.isNotEmpty) _emailController.text = email;
+    if (noHp.isNotEmpty) _phoneController.text = noHp;
+    if (universitas.isNotEmpty) _universityController.text = universitas;
+    if (jurusan.isNotEmpty) _programController.text = jurusan;
+    if (nim.isNotEmpty) _nimController.text = nim;
+    if (ipk.isNotEmpty) _gpaController.text = ipk;
+    if (bio.isNotEmpty) _bioController.text = bio;
+
+    if (keahlianRaw.isNotEmpty) {
+      final parsedSkills = keahlianRaw
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (parsedSkills.isNotEmpty) {
+        _selectedSkills = parsedSkills;
+        for (final s in parsedSkills) {
+          if (!_availableSkills.contains(s)) {
+            _availableSkills.add(s);
+            _customSkills.add(s);
+          }
+        }
+      }
+    }
   }
 
   @override
@@ -88,14 +178,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  void _showBackendNotice() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Perubahan belum tersimpan. Sinkronisasi menunggu backend.',
-        ),
-      ),
-    );
+  String _getInitials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .take(2)
+        .map((p) => p[0].toUpperCase())
+        .join();
+    return parts.isEmpty ? 'M' : parts;
   }
 
   Future<void> _pickSellerPhoto() async {
@@ -205,26 +296,107 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     });
   }
 
-  void _saveSellerProfile() {
-    _sellerProfile.update(
-      name: _nameController.text.trim(),
-      phone: _phoneController.text.trim(),
-      university: _universityController.text.trim(),
-      program: _programController.text.trim(),
-      bio: _bioController.text.trim(),
-      nim: _nimController.text.trim(),
-      gpa: _gpaController.text.trim(),
-      photoBytes: _photoBytes,
-      photoName: _photoName,
-      studentCardBytes: _studentCardBytes,
-      studentCardName: _studentCardName,
-      skills: _selectedSkills,
-      customSkills: _customSkills,
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profil penjual berhasil diperbarui.')),
-    );
-    context.go(Routes.profil);
+  Future<void> _saveProfile() async {
+    if (_isSaving) return;
+
+    final nama = _nameController.text.trim();
+    if (nama.isEmpty) {
+      _showMessage('Nama lengkap wajib diisi.');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final userId = await OrderService.getLoggedInUserId();
+      if (userId <= 0) {
+        _showMessage('Sesi pengguna tidak ditemukan. Silakan login ulang.');
+        return;
+      }
+
+      final payload = <String, dynamic>{
+        'nama': nama,
+        'no_hp': _phoneController.text.trim(),
+        'universitas': _universityController.text.trim(),
+        'jurusan': _programController.text.trim(),
+      };
+
+      if (_photoBytes != null && _photoBytes!.isNotEmpty) {
+        final ext = (_photoName ?? 'avatar.jpg').toLowerCase().endsWith('.png')
+            ? 'png'
+            : 'jpeg';
+        payload['foto_base64'] =
+            'data:image/$ext;base64,${base64Encode(_photoBytes!)}';
+      }
+      if (_studentCardBytes != null && _studentCardBytes!.isNotEmpty) {
+        final lowerName = (_studentCardName ?? 'ktm.jpg').toLowerCase();
+        final mime = lowerName.endsWith('.pdf')
+            ? 'application/pdf'
+            : (lowerName.endsWith('.png') ? 'image/png' : 'image/jpeg');
+        payload['ktm_base64'] =
+            'data:$mime;base64,${base64Encode(_studentCardBytes!)}';
+      }
+      if (widget.isSeller) {
+        payload['bio'] = _bioController.text.trim();
+        payload['nim'] = _nimController.text.trim();
+        payload['ipk'] = _gpaController.text.trim();
+        payload['keahlian'] = _selectedSkills.join(', ');
+      } else if (_emailController.text.trim().isNotEmpty) {
+        payload['email'] = _emailController.text.trim();
+      }
+
+      final url = Uri.parse('${ApiConfig.baseUrl}/users/$userId/profile');
+      final response = await http.put(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final updatedData =
+            (decoded['data'] as Map<String, dynamic>?) ?? payload;
+
+        final prefs = await SharedPreferences.getInstance();
+        final rawExisting = prefs.getString('user_data');
+        final mergedUser = rawExisting != null && rawExisting.isNotEmpty
+            ? Map<String, dynamic>.from(jsonDecode(rawExisting))
+            : <String, dynamic>{};
+        mergedUser.addAll(updatedData);
+        await prefs.setString('user_data', jsonEncode(mergedUser));
+
+        _sellerProfile.update(
+          name: nama,
+          phone: _phoneController.text.trim(),
+          university: _universityController.text.trim(),
+          program: _programController.text.trim(),
+          bio: _bioController.text.trim(),
+          nim: _nimController.text.trim(),
+          gpa: _gpaController.text.trim(),
+          photoBytes: _photoBytes,
+          photoName: _photoName,
+          studentCardBytes: _studentCardBytes,
+          studentCardName: _studentCardName,
+          skills: _selectedSkills,
+          customSkills: _customSkills,
+        );
+
+        if (mounted) {
+          _showMessage('Profil berhasil disimpan ke database.');
+          context.go(Routes.profil);
+        }
+      } else {
+        final err = jsonDecode(response.body);
+        _showMessage(err['message']?.toString() ?? 'Gagal menyimpan profil.');
+      }
+    } catch (e) {
+      _showMessage('Terjadi kesalahan koneksi: $e');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   void _showMessage(String message) {
@@ -248,100 +420,107 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        child: _isLoadingProfile
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
                 children: [
-                  Center(
-                    child: Column(
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
                       children: [
-                        Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            CircleAvatar(
-                              radius: 34,
-                              backgroundColor: const Color(0xFFDCEAFF),
-                              backgroundImage: _photoBytes == null
-                                  ? null
-                                  : MemoryImage(_photoBytes!),
-                              child: _photoBytes == null
-                                  ? const Text(
-                                      'AS',
-                                      style: TextStyle(
-                                        color: AppColors.primary,
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w700,
+                        Center(
+                          child: Column(
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 34,
+                                    backgroundColor: const Color(0xFFDCEAFF),
+                                    backgroundImage: _photoBytes != null
+                                        ? MemoryImage(_photoBytes!)
+                                        : (_remotePhotoUrl.isNotEmpty
+                                            ? NetworkImage(_remotePhotoUrl)
+                                                as ImageProvider
+                                            : null),
+                                    child: (_photoBytes == null &&
+                                            _remotePhotoUrl.isEmpty)
+                                        ? Text(
+                                            _getInitials(_nameController.text),
+                                            style: const TextStyle(
+                                              color: AppColors.primary,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          )
+                                        : null,
+                                  ),
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: CircleAvatar(
+                                      radius: 12,
+                                      backgroundColor: AppColors.primary,
+                                      child: IconButton(
+                                        padding: EdgeInsets.zero,
+                                        iconSize: 14,
+                                        color: Colors.white,
+                                        onPressed: _pickSellerPhoto,
+                                        icon: const Icon(Icons.add),
                                       ),
-                                    )
-                                  : null,
-                            ),
-                            Positioned(
-                              right: -2,
-                              bottom: -2,
-                              child: CircleAvatar(
-                                radius: 12,
-                                backgroundColor: AppColors.primary,
-                                child: IconButton(
-                                  padding: EdgeInsets.zero,
-                                  iconSize: 14,
-                                  color: Colors.white,
-                                  onPressed: widget.isSeller
-                                      ? _pickSellerPhoto
-                                      : _showBackendNotice,
-                                  icon: const Icon(Icons.add),
-                                ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: _pickSellerPhoto,
+                                child: const Text('Ubah Foto Profil'),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        TextButton(
-                          onPressed: widget.isSeller
-                              ? _pickSellerPhoto
-                              : _showBackendNotice,
-                          child: const Text('Ubah Foto Profil'),
-                        ),
+                        const SizedBox(height: 12),
+                        if (widget.isSeller)
+                          _buildSellerFields()
+                        else
+                          _buildBuyerFields(),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  _BackendNotice(isSeller: widget.isSeller),
-                  const SizedBox(height: 20),
-                  if (widget.isSeller)
-                    _buildSellerFields()
-                  else
-                    _buildBuyerFields(),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              color: AppColors.surface,
-              child: SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton(
-                  onPressed: widget.isSeller
-                      ? _saveSellerProfile
-                      : _showBackendNotice,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    color: AppColors.surface,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        onPressed: _isSaving ? null : _saveProfile,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _isSaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Simpan Perubahan',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                      ),
                     ),
                   ),
-                  child: const Text(
-                    'Simpan Perubahan',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -441,6 +620,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         const _SectionHeading('Verifikasi Identitas Mahasiswa'),
         _VerificationCard(
           fileName: _studentCardName,
+          hasUploadedFile:
+              _studentCardBytes != null || _remoteKtmUrl.isNotEmpty,
+          verificationStatus: _verificationStatus,
+          verificationNote: _verificationNote,
           isPicking: _isPickingStudentCard,
           onTap: _pickStudentCard,
         ),
@@ -461,35 +644,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           onAddSkill: _addCustomSkill,
         ),
       ],
-    );
-  }
-}
-
-class _BackendNotice extends StatelessWidget {
-  const _BackendNotice({required this.isSeller});
-
-  final bool isSeller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (isSeller) return const SizedBox.shrink();
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-      ),
-      child: Text(
-        isSeller
-            ? 'Form penjual sudah disiapkan. Data pendaftaran, verifikasi, dan penyimpanan akan tersambung setelah backend tersedia.'
-            : 'Form pembeli sudah disiapkan. Data pendaftaran dan penyimpanan akan tersambung setelah backend tersedia.',
-        style: const TextStyle(
-          color: Color(0xFF1E40AF),
-          fontSize: 12,
-          height: 1.4,
-        ),
-      ),
     );
   }
 }
@@ -581,16 +735,40 @@ class _ProfileField extends StatelessWidget {
 class _VerificationCard extends StatelessWidget {
   const _VerificationCard({
     required this.fileName,
+    required this.hasUploadedFile,
+    required this.verificationStatus,
+    required this.verificationNote,
     required this.isPicking,
     required this.onTap,
   });
 
   final String? fileName;
+  final bool hasUploadedFile;
+  final String verificationStatus;
+  final String verificationNote;
   final bool isPicking;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final normalized = verificationStatus.toLowerCase();
+    final isVerified = normalized == 'terverifikasi' || normalized == 'aktif';
+    final isRejected = normalized == 'ditolak';
+
+    final badgeColor = isVerified
+        ? const Color(0xFFDCFCE7)
+        : (isRejected ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7));
+    final badgeTextColor = isVerified
+        ? const Color(0xFF15803D)
+        : (isRejected ? const Color(0xFFB91C1C) : const Color(0xFFB45309));
+    final badgeLabel = isVerified
+        ? 'Terverifikasi'
+        : (isRejected
+            ? 'Ditolak Admin'
+            : (hasUploadedFile
+                ? 'Menunggu Verifikasi Admin'
+                : 'Belum Unggah KTM'));
+
     return Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(10),
@@ -603,49 +781,84 @@ class _VerificationCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: AppColors.border),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.badge_outlined, color: AppColors.textSecondary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Kartu Tanda Mahasiswa (KTM)',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.badge_outlined,
+                    color: AppColors.textSecondary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Kartu Tanda Mahasiswa (KTM)',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          isPicking
+                              ? 'Membuka file...'
+                              : fileName ??
+                                  'Pilih foto atau PDF, maksimal 10 MB',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      isPicking
-                          ? 'Membuka file...'
-                          : fileName ?? 'Pilih foto atau PDF, maksimal 10 MB',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+                  ),
+                  const SizedBox(width: 8),
+                  isPicking
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.upload_file_outlined,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: badgeColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  badgeLabel,
+                  style: TextStyle(
+                    color: badgeTextColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
-              isPicking
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(
-                      Icons.upload_file_outlined,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
+              if (isRejected && verificationNote.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Catatan Admin: $verificationNote',
+                  style: const TextStyle(
+                    color: Color(0xFFB91C1C),
+                    fontSize: 10,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

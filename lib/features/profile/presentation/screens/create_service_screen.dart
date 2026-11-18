@@ -11,7 +11,6 @@ import '../../../../app/routes/route_names.dart';
 import '../../../../app/theme/app_colors.dart';
 import '../../../../core/utils/api_config.dart';
 import '../../../../core/widgets/app_back_button.dart';
-import '../../controllers/seller_profile_store.dart';
 import '../../controllers/seller_service_store.dart';
 
 class CreateServiceScreen extends StatefulWidget {
@@ -138,7 +137,7 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
       return int.parse(directStrId);
     }
 
-    final userJsonStr = prefs.getString('user');
+    final userJsonStr = prefs.getString('user_data') ?? prefs.getString('user');
     if (userJsonStr != null) {
       try {
         final userMap = jsonDecode(userJsonStr);
@@ -198,7 +197,7 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
           : '$baseDesc\n\nYang termasuk dalam paket:\n${deliverables.map((e) => '• $e').join('\n')}';
 
       // Status 'aktif' saat Publikasikan Jasa agar langsung tampil di Beranda untuk diuji
-      final dbStatus = status == SellerServiceStatus.draft ? 'draft' : 'aktif';
+      final dbStatus = status == SellerServiceStatus.draft ? 'draft' : 'ditinjau';
 
       // Konversi foto sampul ke format Base64 untuk dikirim ke Backend
       String? coverBase64;

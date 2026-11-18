@@ -5,8 +5,11 @@ import 'package:http/http.dart' as http;
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
-import '../../../core/widgets/app_back_button.dart';
 import '../../../core/utils/api_config.dart';
+import '../../../core/widgets/app_back_button.dart';
+import '../../auth/services/review_service.dart';
+import 'order_payment.dart';
+import 'service_catalog.dart';
 
 class ServiceDetailScreen extends StatefulWidget {
   const ServiceDetailScreen({super.key, this.serviceId});
@@ -19,6 +22,7 @@ class ServiceDetailScreen extends StatefulWidget {
 
 class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   ServiceDetail? _service;
+  List<ServiceReviewItem> _reviews = [];
   bool _isLoading = true;
   bool _isError = false;
 
@@ -40,11 +44,16 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final fetchedReviews =
+            await ReviewService.getServiceReviews(widget.serviceId!);
+        if (!mounted) return;
         setState(() {
           _service = ServiceDetail.fromJson(data['data']);
+          _reviews = fetchedReviews;
           _isLoading = false;
         });
       } else {
+        if (!mounted) return;
         setState(() {
           _isError = true;
           _isLoading = false;
@@ -52,11 +61,54 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
       }
     } catch (e) {
       debugPrint('Error get detail: $e');
+      if (!mounted) return;
       setState(() {
         _isError = true;
         _isLoading = false;
       });
     }
+  }
+
+  ServiceInfo _toServiceInfo(ServiceDetail detail) {
+    final kategori = detail.namaKategori.toLowerCase();
+    final (color, iconColor, icon) = switch (kategori) {
+      'coding' => (
+          const Color(0xFFDCEAFF),
+          AppColors.primary,
+          Icons.code,
+        ),
+      'desain' => (
+          const Color(0xFFFFF3C4),
+          const Color(0xFFF59E0B),
+          Icons.palette,
+        ),
+      _ => (
+          const Color(0xFFDCFCE7),
+          const Color(0xFF16A34A),
+          Icons.insert_chart,
+        ),
+    };
+
+    return ServiceInfo(
+      id: detail.id,
+      title: detail.judul,
+      seller: detail.namaPenjual,
+      department: detail.jurusanPenjual,
+      rating: detail.rating.toString(),
+      reviews: detail.reviewCount,
+      salesCount: detail.reviewCount,
+      price: int.tryParse(detail.harga) ?? 0,
+      category: detail.namaKategori,
+      color: color,
+      iconColor: iconColor,
+      icon: icon,
+      description: detail.deskripsi,
+      includes: [
+        'Paket: ${detail.namaPaket}',
+        'Waktu Pengerjaan: ${detail.waktuPengerjaan} Hari',
+        'Maksimal Revisi: ${detail.jumlahRevisi}x',
+      ],
+    );
   }
 
   @override
@@ -82,6 +134,13 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
     }
 
     final service = _service!;
+    final displayRating = _reviews.isNotEmpty
+        ? (_reviews.map((e) => e.rating).reduce((a, b) => a + b) /
+                _reviews.length)
+            .toStringAsFixed(1)
+        : service.rating.toString();
+    final displayReviewCount =
+        _reviews.isNotEmpty ? _reviews.length : service.reviewCount;
 
     return Scaffold(
       appBar: AppBar(
@@ -134,13 +193,24 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                         color: const Color(0xFFFFF3C4),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Text(
-                        '★ ${service.rating}  (${service.reviewCount} Ulasan)',
-                        style: const TextStyle(
-                          color: Color(0xFF9A5A00),
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.star,
+                            color: Color(0xFFF59E0B),
+                            size: 13,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$displayRating ($displayReviewCount Ulasan)',
+                            style: const TextStyle(
+                              color: Color(0xFF9A5A00),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -169,9 +239,36 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   text: 'Maksimal Revisi: ${service.jumlahRevisi}x',
                 ),
                 const SizedBox(height: 14),
-                _SectionLabel('ULASAN PEMBELI (${service.reviewCount})'),
+                _SectionLabel('ULASAN PEMBELI ($displayReviewCount)'),
                 const SizedBox(height: 7),
-                const _ReviewCard(),
+                if (_reviews.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: AppColors.border),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Belum ada ulasan untuk jasa ini.',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  )
+                else
+                  Column(
+                    children: _reviews
+                        .map(
+                          (rev) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _RealReviewCard(review: rev),
+                          ),
+                        )
+                        .toList(),
+                  ),
               ],
             ),
           ),
@@ -188,7 +285,19 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
           child: Row(
             children: [
               OutlinedButton.icon(
-                onPressed: () => context.go(Routes.chat),
+                onPressed: () {
+                  final preOrderContext = OrderPayment(
+                    sellerId: service.sellerId,
+                    service: _toServiceInfo(service),
+                    brief: '',
+                    paymentMethod: 'QRIS',
+                    total: 0,
+                  );
+                  context.push(
+                    '${Routes.chatDetail}/${service.sellerId}',
+                    extra: preOrderContext,
+                  );
+                },
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
                 label: const Text('Chat'),
                 style: OutlinedButton.styleFrom(
@@ -205,6 +314,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                 child: ElevatedButton(
                   onPressed: () => context.push(
                     Routes.orderCheckout,
+                    extra: _toServiceInfo(service),
                   ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48),
@@ -401,11 +511,29 @@ class _SellerCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 17,
-            backgroundColor: const Color(0xFFDCEAFF),
-            child: Icon(Icons.person, color: _getDynamicIconColor(), size: 19),
+          Builder(
+            builder: (context) {
+              final rawFoto = (service.fotoPenjual ?? '').trim();
+              final hostBase = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+              final resolvedFoto = rawFoto.isEmpty
+                  ? ''
+                  : (rawFoto.startsWith('http') ? rawFoto : '$hostBase$rawFoto');
+              return CircleAvatar(
+                radius: 17,
+                backgroundColor: const Color(0xFFDCEAFF),
+                backgroundImage: resolvedFoto.isNotEmpty
+                    ? NetworkImage(resolvedFoto) as ImageProvider
+                    : null,
+                child: resolvedFoto.isEmpty
+                    ? Icon(Icons.person, color: _getDynamicIconColor(), size: 19)
+                    : null,
+              );
+            },
           ),
+
+
+
+
           const SizedBox(width: 9),
           Expanded(
             child: Column(
@@ -420,7 +548,7 @@ class _SellerCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${service.jurusanPenjual} • Online 2 jam lalu',
+                  '${service.jurusanPenjual} - Online 2 jam lalu',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -470,64 +598,85 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _ReviewCard extends StatelessWidget {
-  const _ReviewCard();
+class _RealReviewCard extends StatelessWidget {
+  const _RealReviewCard({required this.review});
+
+  final ServiceReviewItem review;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(11),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: AppColors.border),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               CircleAvatar(
-                radius: 9,
-                backgroundColor: Color(0xFFE2E8F0),
-                child: Icon(Icons.person, size: 12, color: Colors.white),
+                radius: 12,
+                backgroundColor: const Color(0xFFDCEAFF),
+                child: Text(
+                  review.buyerName.isNotEmpty
+                      ? review.buyerName[0].toUpperCase()
+                      : 'P',
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-              SizedBox(width: 7),
-              Text(
-                'Budi S.',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      review.buyerName,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Row(
+                      children: List.generate(
+                        5,
+                        (i) => Icon(
+                          i < review.rating ? Icons.star : Icons.star_border,
+                          color: const Color(0xFFF59E0B),
+                          size: 13,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          Padding(
-            padding: EdgeInsets.only(left: 25),
-            child: Text(
-              '★★★★★',
-              style: TextStyle(color: Color(0xFFF59E0B), fontSize: 11),
+          if (review.comment.isNotEmpty) ...[
+            const SizedBox(height: 7),
+            Text(
+              '"${review.comment}"',
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                height: 1.35,
+              ),
             ),
-          ),
-          SizedBox(height: 5),
-          Text(
-            '"Pengerjaannya cepat banget, kodenya rapi dan mudah dipahami. Sangat merekomendasikan penjual ini!"',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 11,
-              height: 1.35,
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-// -------------------------------------------------------------
-// MODEL BACKEND UNTUK DETAIL JASA
-// -------------------------------------------------------------
 class ServiceDetail {
   final String id;
   final String judul;
@@ -539,9 +688,10 @@ class ServiceDetail {
   final double rating;
   final int reviewCount;
   final String namaKategori;
+  final int sellerId;
   final String namaPenjual;
   final String jurusanPenjual;
-  final String? bannerUrl;
+  final String? bannerUrl; final String? fotoPenjual;
 
   ServiceDetail({
     required this.id,
@@ -554,9 +704,10 @@ class ServiceDetail {
     required this.rating,
     required this.reviewCount,
     required this.namaKategori,
+    required this.sellerId,
     required this.namaPenjual,
     required this.jurusanPenjual,
-    this.bannerUrl,
+    this.bannerUrl, this.fotoPenjual,
   });
 
   String? get fullBannerUrl {
@@ -586,9 +737,10 @@ class ServiceDetail {
           : 0.0,
       reviewCount: json['review_count'] ?? 0,
       namaKategori: json['nama_kategori'] ?? 'Lainnya',
+      sellerId: int.tryParse(json['seller_id']?.toString() ?? '0') ?? 0,
       namaPenjual: json['nama_penjual'] ?? 'Anonim',
       jurusanPenjual: json['jurusan_penjual'] ?? 'Mahasiswa',
-      bannerUrl: json['banner_url'],
+      bannerUrl: json['banner_url'], fotoPenjual: json['foto_penjual'],
     );
   }
 }

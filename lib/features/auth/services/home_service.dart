@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../core/utils/api_config.dart'; // Sesuaikan path ini jika error
@@ -52,11 +53,11 @@ class HomeService {
         // Mengubah array JSON menjadi List<ServiceItem>
         return servicesJson.map((json) => ServiceItem.fromJson(json)).toList();
       } else {
-        print('Gagal mengambil data. Status: ${response.statusCode}');
+        debugPrint('Gagal mengambil data. Status: ${response.statusCode}');
         return [];
       }
     } catch (e) {
-      print('Error saat getServices: $e');
+      debugPrint('Error saat getServices: $e');
       return [];
     }
   }

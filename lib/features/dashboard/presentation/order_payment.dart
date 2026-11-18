@@ -55,6 +55,12 @@ class OrderPayment {
     required this.brief,
     required this.paymentMethod,
     required this.total,
+    this.dbId,
+    this.buyerId,
+    this.sellerId,
+    this.rawStatus = 'menunggu_konfirmasi',
+    this.resultNote,
+    this.resultFileUrl,
     this.attachments = const [],
     this.resultFiles = const [],
     this.buyerName = 'Pembeli',
@@ -63,8 +69,16 @@ class OrderPayment {
     this.progress = OrderProgress.waitingSeller,
     this.sellerUnread = false,
     this.buyerUnread = false,
+    this.hasReview = false,
+    this.reviewRating,
   });
 
+  final int? dbId;
+  final int? buyerId;
+  final int? sellerId;
+  final String rawStatus;
+  final String? resultNote;
+  final String? resultFileUrl;
   final ServiceInfo service;
   final String brief;
   final String paymentMethod;
@@ -77,8 +91,16 @@ class OrderPayment {
   final OrderProgress progress;
   final bool sellerUnread;
   final bool buyerUnread;
+  final bool hasReview;
+  final int? reviewRating;
 
   OrderPayment copyWith({
+    int? dbId,
+    int? buyerId,
+    int? sellerId,
+    String? rawStatus,
+    String? resultNote,
+    String? resultFileUrl,
     String? transactionId,
     DateTime? paidAt,
     OrderProgress? progress,
@@ -87,6 +109,12 @@ class OrderPayment {
     List<OrderAttachment>? resultFiles,
   }) {
     return OrderPayment(
+      dbId: dbId ?? this.dbId,
+      buyerId: buyerId ?? this.buyerId,
+      sellerId: sellerId ?? this.sellerId,
+      rawStatus: rawStatus ?? this.rawStatus,
+      resultNote: resultNote ?? this.resultNote,
+      resultFileUrl: resultFileUrl ?? this.resultFileUrl,
       service: service,
       brief: brief,
       paymentMethod: paymentMethod,
@@ -177,10 +205,13 @@ class BuyerOrderStore extends ChangeNotifier {
   int get buyerUnreadCount =>
       _orders.where((order) => order.buyerUnread).length;
 
-  OrderPayment confirmPayment(OrderPayment order) {
+  OrderPayment confirmPayment(
+    OrderPayment order, {
+    String? backendOrderCode,
+  }) {
     final now = DateTime.now();
     final confirmedOrder = order.copyWith(
-      transactionId: 'TRX-${now.microsecondsSinceEpoch}',
+      transactionId: backendOrderCode ?? 'TRX-${now.microsecondsSinceEpoch}',
       paidAt: now,
       sellerUnread: true,
     );

@@ -1,4 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import '../../../core/utils/api_config.dart';
+import '../../auth/services/order_service.dart';
 
 enum SellerServiceStatus { active, inactive, draft, underReview }
 
@@ -11,10 +15,11 @@ class SellerService {
     required this.description,
     required this.deliverables,
     required this.status,
-    this.sellerName = 'Arif Setiawan',
-    this.sellerDepartment = 'S1 Teknik Informatika',
+    this.sellerName = '',
+    this.sellerDepartment = '',
     this.coverName,
     this.coverBytes,
+    this.bannerUrl = '',
     this.packageName = '',
     this.deliveryDays = 2,
     this.revisions = 2,
@@ -33,11 +38,88 @@ class SellerService {
   final String sellerDepartment;
   final String? coverName;
   final Uint8List? coverBytes;
+  final String bannerUrl;
   final String packageName;
   final int deliveryDays;
   final int revisions;
   final int salesCount;
   final String rating;
+
+  static SellerServiceStatus _parseStatus(String? raw) {
+    switch ((raw ?? '').toLowerCase().trim()) {
+      case 'aktif':
+      case 'active':
+        return SellerServiceStatus.active;
+      case 'nonaktif':
+      case 'inactive':
+        return SellerServiceStatus.inactive;
+      case 'draft':
+        return SellerServiceStatus.draft;
+      case 'ditinjau':
+      case 'under_review':
+      case 'underreview':
+        return SellerServiceStatus.underReview;
+      default:
+        return SellerServiceStatus.active;
+    }
+  }
+
+  static String toBackendStatus(SellerServiceStatus status) {
+    switch (status) {
+      case SellerServiceStatus.active:
+        return 'aktif';
+      case SellerServiceStatus.inactive:
+        return 'nonaktif';
+      case SellerServiceStatus.draft:
+        return 'draft';
+      case SellerServiceStatus.underReview:
+        return 'ditinjau';
+    }
+  }
+
+  factory SellerService.fromJson(Map<String, dynamic> json) {
+    final rawDesc = (json['deskripsi'] ?? '').toString();
+    String baseDesc = rawDesc;
+    List<String> deliverables = [];
+    const marker = '\n\nYang termasuk dalam paket:\n';
+    if (rawDesc.contains(marker)) {
+      final parts = rawDesc.split(marker);
+      baseDesc = parts[0].trim();
+      deliverables = parts[1]
+          .split('\n')
+          .map((line) => line.replaceFirst(RegExp(r'^[•\-\*]\s*'), '').trim())
+          .where((line) => line.isNotEmpty)
+          .toList();
+    }
+
+    final rawHarga = json['harga'];
+    final parsedPrice = rawHarga is num
+        ? rawHarga.toInt()
+        : (double.tryParse(rawHarga?.toString() ?? '0')?.toInt() ?? 0);
+
+    final rawRating = json['rating'];
+    final ratingVal = rawRating != null
+        ? (double.tryParse(rawRating.toString())?.toStringAsFixed(1) ?? '0.0')
+        : '0.0';
+
+    return SellerService(
+      id: (json['id'] ?? '').toString(),
+      title: (json['judul'] ?? '').toString(),
+      price: parsedPrice,
+      category: (json['nama_kategori'] ?? 'Coding').toString(),
+      description: baseDesc,
+      deliverables: deliverables,
+      status: _parseStatus(json['status']?.toString()),
+      sellerName: (json['nama_penjual'] ?? '').toString(),
+      sellerDepartment: (json['jurusan_penjual'] ?? '').toString(),
+      bannerUrl: (json['banner_url'] ?? '').toString(),
+      packageName: (json['nama_paket'] ?? '').toString(),
+      deliveryDays: int.tryParse(json['waktu_pengerjaan']?.toString() ?? '2') ?? 2,
+      revisions: int.tryParse(json['jumlah_revisi']?.toString() ?? '2') ?? 2,
+      salesCount: int.tryParse(json['sales_count']?.toString() ?? '0') ?? 0,
+      rating: ratingVal,
+    );
+  }
 
   SellerService copyWith({
     String? title,
@@ -50,6 +132,7 @@ class SellerService {
     String? sellerDepartment,
     String? coverName,
     Uint8List? coverBytes,
+    String? bannerUrl,
     String? packageName,
     int? deliveryDays,
     int? revisions,
@@ -66,6 +149,7 @@ class SellerService {
       sellerDepartment: sellerDepartment ?? this.sellerDepartment,
       coverName: coverName ?? this.coverName,
       coverBytes: coverBytes ?? this.coverBytes,
+      bannerUrl: bannerUrl ?? this.bannerUrl,
       packageName: packageName ?? this.packageName,
       deliveryDays: deliveryDays ?? this.deliveryDays,
       revisions: revisions ?? this.revisions,
@@ -80,54 +164,48 @@ class SellerServiceStore extends ChangeNotifier {
 
   static final SellerServiceStore instance = SellerServiceStore._();
 
-  final List<SellerService> _services = [
-    const SellerService(
-      id: 'seller-web-react',
-      title: 'Jasa Web React & UI',
-      price: 50000,
-      category: 'Coding',
-      description: 'Pembuatan antarmuka web menggunakan React.',
-      deliverables: ['Source code', 'Revisi 2x'],
-      status: SellerServiceStatus.active,
-      salesCount: 15,
-      rating: '4.9',
-    ),
-    const SellerService(
-      id: 'seller-figma-html',
-      title: 'Bantu Slicing Figma ke HTML',
-      price: 25000,
-      category: 'Coding',
-      description: 'Konversi desain Figma menjadi halaman HTML responsif.',
-      deliverables: ['File HTML/CSS', 'Revisi 1x'],
-      status: SellerServiceStatus.active,
-      salesCount: 5,
-      rating: '5.0',
-    ),
-    const SellerService(
-      id: 'seller-banner',
-      title: 'Desain Banner & Poster UI',
-      price: 30000,
-      category: 'Desain',
-      description: 'Desain banner dan poster untuk kebutuhan kampus.',
-      deliverables: ['File siap cetak', 'Revisi 2x'],
-      status: SellerServiceStatus.underReview,
-      salesCount: 8,
-      rating: '4.8',
-    ),
-    const SellerService(
-      id: 'seller-logo',
-      title: 'Desain Logo',
-      price: 15000,
-      category: 'Desain',
-      description: 'Desain logo sederhana sesuai kebutuhan.',
-      deliverables: ['File PNG', 'Revisi 1x'],
-      status: SellerServiceStatus.inactive,
-      salesCount: 3,
-      rating: '5.0',
-    ),
-  ];
+  final List<SellerService> _services = [];
+  bool isLoading = false;
+  String? errorMessage;
 
   List<SellerService> get services => List.unmodifiable(_services);
+
+  Future<void> syncFromBackend() async {
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final sellerId = await OrderService.getLoggedInUserId();
+      if (sellerId <= 0) {
+        isLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      final url = Uri.parse('${ApiConfig.baseUrl}/services/seller/$sellerId');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        final rawList = (decoded['data'] as List<dynamic>?) ?? [];
+        _services
+          ..clear()
+          ..addAll(
+            rawList.map(
+              (item) => SellerService.fromJson(item as Map<String, dynamic>),
+            ),
+          );
+      } else {
+        errorMessage = 'Gagal memuat daftar jasa (${response.statusCode})';
+      }
+    } catch (e) {
+      errorMessage = 'Gagal terhubung ke server: $e';
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
 
   void add({
     required String title,
@@ -136,8 +214,8 @@ class SellerServiceStore extends ChangeNotifier {
     required String description,
     required List<String> deliverables,
     required SellerServiceStatus status,
-    String sellerName = 'Arif Setiawan',
-    String sellerDepartment = 'S1 Teknik Informatika',
+    String sellerName = '',
+    String sellerDepartment = '',
     String? coverName,
     Uint8List? coverBytes,
     required String packageName,
@@ -169,11 +247,48 @@ class SellerServiceStore extends ChangeNotifier {
   void update(SellerService updatedService) {
     final index =
         _services.indexWhere((service) => service.id == updatedService.id);
-    if (index == -1) {
-      throw StateError('Jasa yang akan diperbarui tidak ditemukan.');
+    if (index != -1) {
+      _services[index] = updatedService;
+      notifyListeners();
     }
-    _services[index] = updatedService;
-    notifyListeners();
+  }
+
+  Future<bool> toggleStatusRemote(String id, SellerServiceStatus nextStatus) async {
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/services/$id/status');
+      final response = await http.patch(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'status': SellerService.toBackendStatus(nextStatus)}),
+      );
+      if (response.statusCode == 200) {
+        final index = _services.indexWhere((s) => s.id == id);
+        if (index != -1) {
+          _services[index] = _services[index].copyWith(status: nextStatus);
+          notifyListeners();
+        }
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> deleteRemote(String id) async {
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/services/$id');
+      final response = await http.delete(url);
+      if (response.statusCode == 200) {
+        _services.removeWhere((s) => s.id == id);
+        notifyListeners();
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      return decoded['message']?.toString() ?? 'Gagal menghapus jasa.';
+    } catch (e) {
+      return 'Gagal terhubung ke server: $e';
+    }
   }
 
   void setStatus(String id, SellerServiceStatus status) {
