@@ -324,6 +324,10 @@ class SellerWalletStore extends ChangeNotifier {
     await prefs.setString('wallet_account_holder', accountHolder);
   }
 
+  void clearSession() {
+    reset();
+  }
+
   @visibleForTesting
   void reset() {
     _balance = initialBalance;

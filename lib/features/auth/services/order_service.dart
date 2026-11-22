@@ -15,21 +15,24 @@ class OrderService {
   static Future<int> getLoggedInUserId() async {
     final prefs = await SharedPreferences.getInstance();
     final directInt = prefs.getInt('user_id');
-    if (directInt != null) return directInt;
+    if (directInt != null && directInt > 0) return directInt;
 
     final directStr = prefs.getString('user_id');
     if (directStr != null && int.tryParse(directStr) != null) {
       return int.parse(directStr);
     }
 
-    final userJsonStr = prefs.getString('user');
-    if (userJsonStr != null) {
-      try {
-        final userMap = jsonDecode(userJsonStr);
-        if (userMap is Map && userMap['id'] != null) {
-          return int.tryParse(userMap['id'].toString()) ?? 1;
-        }
-      } catch (_) {}
+    for (final key in ['user_data', 'user']) {
+      final userJsonStr = prefs.getString(key);
+      if (userJsonStr != null && userJsonStr.isNotEmpty) {
+        try {
+          final userMap = jsonDecode(userJsonStr);
+          if (userMap is Map && userMap['id'] != null) {
+            final id = int.tryParse(userMap['id'].toString());
+            if (id != null && id > 0) return id;
+          }
+        } catch (_) {}
+      }
     }
     return 1;
   }

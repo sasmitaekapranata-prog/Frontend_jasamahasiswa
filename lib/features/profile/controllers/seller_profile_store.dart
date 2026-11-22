@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 
 class SellerProfileStore extends ChangeNotifier {
@@ -6,10 +5,10 @@ class SellerProfileStore extends ChangeNotifier {
 
   static final SellerProfileStore instance = SellerProfileStore._();
 
-  String name = 'Arif Setiawan';
+  String name = '';
   String phone = '';
   String university = '';
-  String program = 'S1 Teknik Informatika';
+  String program = '';
   String bio = '';
   String nim = '';
   String gpa = '';
@@ -17,7 +16,7 @@ class SellerProfileStore extends ChangeNotifier {
   String? photoName;
   Uint8List? studentCardBytes;
   String? studentCardName;
-  List<String> skills = ['SPSS & R', 'Web Dev', 'Python', 'Skripsi'];
+  List<String> skills = [];
   List<String> customSkills = [];
 
   void update({
@@ -48,6 +47,23 @@ class SellerProfileStore extends ChangeNotifier {
     this.studentCardName = studentCardName;
     this.skills = List.unmodifiable(skills);
     this.customSkills = List.unmodifiable(customSkills);
+    notifyListeners();
+  }
+
+  void reset() {
+    name = '';
+    phone = '';
+    university = '';
+    program = '';
+    bio = '';
+    nim = '';
+    gpa = '';
+    photoBytes = null;
+    photoName = null;
+    studentCardBytes = null;
+    studentCardName = null;
+    skills = [];
+    customSkills = [];
     notifyListeners();
   }
 }

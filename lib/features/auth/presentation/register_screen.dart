@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/routes/route_names.dart';
+import '../services/auth_service.dart';
 import 'auth_form_layout.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -27,11 +29,38 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final isValid = _formKey.currentState!.validate();
-    if (!isValid) return;
+    if (!isValid || _isLoading) return;
 
-    context.go(Routes.beranda);
+    setState(() => _isLoading = true);
+
+    final authService = AuthService();
+    final errorMessage = await authService.register(
+      nama: _nameController.text,
+      email: _emailController.text,
+      password: _passwordController.text,
+    );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (errorMessage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Registrasi berhasil! Selamat datang.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      context.go(Routes.beranda);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -102,17 +131,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
         const SizedBox(height: 20),
         SizedBox(
-          height: 31,
+          height: 36,
           child: FilledButton(
-            onPressed: _submit,
+            onPressed: _isLoading ? null : _submit,
             style: FilledButton.styleFrom(
               backgroundColor: authPrimaryColor,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
-              textStyle: const TextStyle(fontSize: 11),
+              textStyle: const TextStyle(fontSize: 12),
             ),
-            child: const Text('Daftar'),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text('Daftar'),
           ),
         ),
       ],
