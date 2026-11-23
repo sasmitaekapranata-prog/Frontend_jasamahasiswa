@@ -19,6 +19,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
+  bool _isPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
 
   @override
   void dispose() {
@@ -98,10 +100,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextFormField(
           controller: _passwordController,
-          obscureText: true,
+          obscureText: !_isPasswordVisible,
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.newPassword],
-          decoration: authInputDecoration('Masukkan Password'),
+          decoration: authInputDecoration('Masukkan Password').copyWith(
+            suffixIcon: IconButton(
+              tooltip: _isPasswordVisible
+                  ? 'Sembunyikan password'
+                  : 'Tampilkan password',
+              icon: Icon(
+                _isPasswordVisible ? Icons.visibility_off : Icons.visibility,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isPasswordVisible = !_isPasswordVisible;
+                });
+              },
+            ),
+          ),
           validator: (value) {
             if (value == null || value.isEmpty) {
               return 'Password wajib diisi';
@@ -115,10 +131,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 16),
         TextFormField(
           controller: _confirmPasswordController,
-          obscureText: true,
+          obscureText: !_isConfirmPasswordVisible,
           textInputAction: TextInputAction.done,
           onFieldSubmitted: (_) => _submit(),
-          decoration: authInputDecoration('Konfirmasi Password'),
+          decoration: authInputDecoration('Konfirmasi Password').copyWith(
+            suffixIcon: IconButton(
+              tooltip: _isConfirmPasswordVisible
+                  ? 'Sembunyikan password'
+                  : 'Tampilkan password',
+              icon: Icon(
+                _isConfirmPasswordVisible
+                    ? Icons.visibility_off
+                    : Icons.visibility,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                });
+              },
+            ),
+          ),
           validator: (value) {
             if (value == null || value.isEmpty) {
               return 'Konfirmasi password wajib diisi';
