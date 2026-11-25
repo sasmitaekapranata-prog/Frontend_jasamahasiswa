@@ -33,7 +33,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
     'webp',
   ];
   final List<OrderAttachment> _attachments = [];
-  String _paymentMethod = 'QRIS';
+  String _paymentMethod = 'Midtrans';
   bool _isPickingAttachments = false;
   static const _serviceFee = 5000;
 
@@ -68,7 +68,8 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
         }
         final bytes = file.bytes;
         if (bytes == null || bytes.isEmpty) {
-          _showMessage('File ${file.name} tidak dapat dibaca. Silakan pilih ulang.');
+          _showMessage(
+              'File ${file.name} tidak dapat dibaca. Silakan pilih ulang.');
           continue;
         }
         selected.add(
@@ -199,7 +200,8 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
                   child: _AttachmentTile(
                     attachment: _attachments[index],
                     sizeLabel: _formatFileSize(_attachments[index].size),
-                    onRemove: () => setState(() => _attachments.removeAt(index)),
+                    onRemove: () =>
+                        setState(() => _attachments.removeAt(index)),
                   ),
                 ),
             ],
@@ -207,15 +209,21 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
             const _FieldLabel('METODE PEMBAYARAN'),
             const SizedBox(height: 7),
             _PaymentMethodCard(
-              value: 'QRIS',
+              value: 'Midtrans',
               groupValue: _paymentMethod,
-              badge: 'Instant Pay',
+              badge: 'Snap',
               onChanged: (value) => setState(() => _paymentMethod = value),
             ),
-            _PaymentMethodCard(
-              value: 'E-Wallet',
-              groupValue: _paymentMethod,
-              onChanged: (value) => setState(() => _paymentMethod = value),
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                'Pilih QRIS, e-wallet, atau transfer bank di halaman pembayaran Midtrans.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 10,
+                  height: 1.4,
+                ),
+              ),
             ),
             const SizedBox(height: 14),
             _CostSummary(

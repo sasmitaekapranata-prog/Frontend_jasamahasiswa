@@ -73,6 +73,55 @@ class OrderService {
     };
   }
 
+  static Future<Map<String, dynamic>> uploadPaymentProof({
+    required int orderId,
+    required Uint8List proofBytes,
+    required String proofName,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      final extension = proofName.split('.').last.toLowerCase();
+      final mimeType = switch (extension) {
+        'jpg' || 'jpeg' => 'image/jpeg',
+        'webp' => 'image/webp',
+        _ => 'image/png',
+      };
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/orders/$orderId/payment-proof',
+      );
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'payment_proof_base64':
+              'data:$mimeType;base64,${base64Encode(proofBytes)}',
+          'payment_proof_name': proofName,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true};
+      }
+
+      var message = 'Gagal mengirim bukti pembayaran.';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
+      } on FormatException {
+        message = 'Server mengembalikan respons yang tidak valid.';
+      }
+      return {'success': false, 'message': message};
+    } catch (error) {
+      return {'success': false, 'message': error.toString()};
+    }
+  }
+
   static Future<List<OrderPayment>> getBuyerOrders() async {
     final prefs = await SharedPreferences.getInstance();
     final buyerId = await getLoggedInUserId();
