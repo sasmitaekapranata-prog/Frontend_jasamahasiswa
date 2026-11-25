@@ -31,6 +31,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Uri? _snapUri;
   PlatformFile? _proofFile;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final order = widget.payment;
+      if (mounted && order != null) {
+        _startOrOpenPayment(order);
+      }
+    });
+  }
+
   Future<void> _startOrOpenPayment(OrderPayment order) async {
     if (_isSubmitting) return;
 
@@ -367,8 +378,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
             height: 48,
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _isSubmitting ||
-                      (_orderId != null && _snapUri == null)
+              onPressed: _isSubmitting || (_orderId != null && _snapUri == null)
                   ? null
                   : () => _startOrOpenPayment(order),
               child: _isSubmitting
@@ -561,9 +571,8 @@ class _StepCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 15,
-            backgroundColor: isComplete
-                ? const Color(0xFFDCFCE7)
-                : const Color(0xFFEEF5FF),
+            backgroundColor:
+                isComplete ? const Color(0xFFDCFCE7) : const Color(0xFFEEF5FF),
             child: isComplete
                 ? const Icon(Icons.check, color: AppColors.success, size: 18)
                 : Text(
