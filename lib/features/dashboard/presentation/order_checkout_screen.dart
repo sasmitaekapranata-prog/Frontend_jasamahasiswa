@@ -33,7 +33,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
     'webp',
   ];
   final List<OrderAttachment> _attachments = [];
-  String _paymentMethod = 'Midtrans';
+  String _paymentMethod = 'E-Wallet';
   bool _isPickingAttachments = false;
   static const _serviceFee = 5000;
 
@@ -209,15 +209,15 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen> {
             const _FieldLabel('METODE PEMBAYARAN'),
             const SizedBox(height: 7),
             _PaymentMethodCard(
-              value: 'Midtrans',
+              value: 'E-Wallet',
               groupValue: _paymentMethod,
-              badge: 'Snap',
+              badge: 'via Midtrans',
               onChanged: (value) => setState(() => _paymentMethod = value),
             ),
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: Text(
-                'Pilih QRIS, e-wallet, atau transfer bank di halaman pembayaran Midtrans.',
+                'Kamu akan diarahkan ke Midtrans untuk melanjutkan pembayaran E-Wallet.',
                 style: TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 10,

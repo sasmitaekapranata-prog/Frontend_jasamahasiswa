@@ -21,6 +21,10 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   static const _maxProofBytes = 10 * 1024 * 1024;
   static const _proofExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+  static const _sandboxPaymentAmount = 55000;
+  static final _sandboxPaymentUri = Uri.parse(
+    'https://app.sandbox.midtrans.com/payment-links/007b3635-35d1-44f3-b8e7-64e6f6b7ed6a-XxNmlzS3',
+  );
 
   bool _isSubmitting = false;
   bool _isPickingProof = false;
@@ -28,7 +32,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _paymentOpened = false;
   bool _proofSubmitted = false;
   int? _orderId;
-  Uri? _snapUri;
   PlatformFile? _proofFile;
 
   @override
@@ -45,17 +48,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _startOrOpenPayment(OrderPayment order) async {
     if (_isSubmitting) return;
 
-    final existingSnapUri = _snapUri;
-    if (existingSnapUri != null) {
-      await _openSnapUrl(existingSnapUri);
+    if (order.total != _sandboxPaymentAmount) {
+      _showMessage(
+        'Payment Link Sandbox ini bernilai Rp55.000. Total pesanan harus sama.',
+        isError: true,
+      );
       return;
     }
 
     if (_orderId != null) {
-      _showMessage(
-        'Pesanan sudah dibuat, tetapi backend belum mengirim URL Snap.',
-        isError: true,
-      );
+      await _openPaymentLink();
       return;
     }
 
@@ -87,9 +89,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
 
       final orderId = int.tryParse(data['id']?.toString() ?? '');
-      final rawSnapUrl =
-          data['snap_url']?.toString() ?? data['redirect_url']?.toString();
-      final snapUri = rawSnapUrl == null ? null : Uri.tryParse(rawSnapUrl);
 
       if (orderId == null || orderId <= 0) {
         _showMessage(
@@ -100,16 +99,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
       setState(() => _orderId = orderId);
 
-      if (snapUri == null || !_isAllowedSnapUrl(snapUri)) {
-        _showMessage(
-          'Pesanan dibuat, tetapi URL Snap dari backend tidak valid.',
-          isError: true,
-        );
-        return;
-      }
-
-      setState(() => _snapUri = snapUri);
-      await _openSnapUrl(snapUri);
+      await _openPaymentLink();
     } catch (error) {
       if (mounted) {
         _showMessage('Gagal memulai pembayaran: $error', isError: true);
@@ -119,18 +109,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
-  bool _isAllowedSnapUrl(Uri uri) {
-    const allowedHosts = {
-      'app.midtrans.com',
-      'app.sandbox.midtrans.com',
-    };
-    return uri.scheme == 'https' && allowedHosts.contains(uri.host);
-  }
-
-  Future<void> _openSnapUrl(Uri uri) async {
+  Future<void> _openPaymentLink() async {
     try {
       final opened = await launchUrl(
-        uri,
+        _sandboxPaymentUri,
         mode: LaunchMode.externalApplication,
       );
       if (!mounted) return;
@@ -237,7 +219,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return Scaffold(
         appBar: AppBar(
           leading: const AppBackButton(fallbackLocation: Routes.beranda),
-          title: const Text('Pembayaran Midtrans'),
+          title: const Text('Pembayaran E-Wallet'),
         ),
         body: const Center(child: Text('Data pembayaran tidak tersedia.')),
       );
@@ -247,7 +229,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       appBar: AppBar(
         leading: const AppBackButton(fallbackLocation: Routes.beranda),
         title: const Text(
-          'Pembayaran Midtrans',
+          'Pembayaran E-Wallet',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
         ),
       ),
@@ -256,8 +238,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
         children: [
           _InfoBanner(
             icon: Icons.open_in_browser,
-            text:
-                'Kamu akan membayar melalui halaman resmi Midtrans di browser.',
+            text: order.total == _sandboxPaymentAmount
+                ? 'Link Sandbox ini bernilai tetap Rp55.000 dan tidak terhubung otomatis ke order backend. Admin perlu memeriksa bukti secara manual.'
+                : 'Payment Link Sandbox hanya menerima nominal Rp55.000.',
+            isError: order.total != _sandboxPaymentAmount,
           ),
           const SizedBox(height: 12),
           Container(
@@ -323,7 +307,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           _StepCard(
             number: '1',
             title: 'Bayar di browser Midtrans',
-            subtitle: 'Pilih QRIS, e-wallet, atau transfer bank di Snap.',
+            subtitle: 'Gunakan metode pembayaran yang tersedia pada link ini.',
             isComplete: _paymentOpened,
           ),
           const SizedBox(height: 8),
@@ -355,15 +339,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   'Bukti berhasil dikirim. Status pembayaran menunggu verifikasi admin.',
             ),
           ],
-          if (_orderId != null && _snapUri == null) ...[
-            const SizedBox(height: 12),
-            const _InfoBanner(
-              icon: Icons.error_outline,
-              text:
-                  'Pesanan tercatat, tetapi backend belum memberikan URL Snap. Minta backend mengembalikan data.snap_url.',
-              isError: true,
-            ),
-          ],
         ],
       ),
       bottomNavigationBar: SafeArea(
@@ -378,9 +353,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
             height: 48,
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _isSubmitting || (_orderId != null && _snapUri == null)
-                  ? null
-                  : () => _startOrOpenPayment(order),
+              onPressed:
+                  _isSubmitting ? null : () => _startOrOpenPayment(order),
               child: _isSubmitting
                   ? const SizedBox(
                       width: 22,
@@ -391,7 +365,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                     )
                   : Text(
-                      _snapUri == null
+                      _orderId == null
                           ? 'Lanjut ke Pembayaran Midtrans'
                           : 'Buka Kembali Midtrans',
                       style: const TextStyle(fontWeight: FontWeight.w700),
