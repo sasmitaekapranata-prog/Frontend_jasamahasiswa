@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
@@ -16,6 +19,8 @@ class _AiRecommendationChatScreenState
     extends State<AiRecommendationChatScreen> {
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
+  bool _isLoading = false;
+
   final List<_ChatMessage> _messages = [
     const _ChatMessage(
       text:
@@ -31,32 +36,12 @@ class _AiRecommendationChatScreenState
     'Butuh bantuan olah data',
   ];
 
-  static const _services = [
-    _RecommendedService(
-      id: 'web-react',
-      title: 'Jasa Web React & UI Tailwind',
-      price: 'Mulai Rp50.000',
-      category: 'Coding',
-      icon: Icons.code,
-      color: Color(0xFFEEF5FF),
-    ),
-    _RecommendedService(
-      id: 'desain-ppt',
-      title: 'Desain PPT & Poster Aesthetic',
-      price: 'Mulai Rp25.000',
-      category: 'Desain',
-      icon: Icons.palette_outlined,
-      color: Color(0xFFFFF3C4),
-    ),
-    _RecommendedService(
-      id: 'olah-data',
-      title: 'Olah Data SPSS & Skripsi',
-      price: 'Mulai Rp75.000',
-      category: 'Olah Data',
-      icon: Icons.insert_chart_outlined,
-      color: Color(0xFFDCFCE7),
-    ),
-  ];
+  String get _apiUrl {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:3000/api/ai/chat';
+    }
+    return 'http://localhost:3000/api/ai/chat';
+  }
 
   @override
   void dispose() {
@@ -65,60 +50,75 @@ class _AiRecommendationChatScreenState
     super.dispose();
   }
 
-  void _sendMessage([String? suggestion]) {
+  Future<void> _sendMessage([String? suggestion]) async {
     final text = (suggestion ?? _messageController.text).trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isLoading) return;
 
-    final service = _matchService(text);
     setState(() {
       _messages.add(_ChatMessage(text: text, isAssistant: false));
-      _messages.add(
-        _ChatMessage(
-          text: _buildReply(text, service),
-          isAssistant: true,
-          service: service,
-        ),
-      );
       _messageController.clear();
+      _isLoading = true;
     });
     _scrollToLatestMessage();
-  }
 
-  _RecommendedService? _matchService(String text) {
-    final normalized = text.toLowerCase();
-    if (RegExp(r'\b(coding|kode|program|website|web|aplikasi|codingan)\b')
-        .hasMatch(normalized)) {
-      return _services[0];
-    }
-    if (RegExp(r'\b(desain|design|ppt|presentasi|poster|canva)\b')
-        .hasMatch(normalized)) {
-      return _services[1];
-    }
-    if (RegExp(r'\b(data|spss|skripsi|statistik|penelitian|olah)\b')
-        .hasMatch(normalized)) {
-      return _services[2];
-    }
-    return null;
-  }
+    try {
+      final response = await http
+          .post(
+            Uri.parse(_apiUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'message': text}),
+          )
+          .timeout(const Duration(seconds: 60));
 
-  String _buildReply(String text, _RecommendedService? service) {
-    if (service != null) {
-      return 'Dari ceritamu, jasa ${service.category.toLowerCase()} sepertinya '
-          'paling sesuai. Ini salah satu pilihan yang bisa kamu lihat. '
-          'Kamu juga bisa ceritakan deadline atau detail tugas agar pencarian '
-          'lebih pas.';
-    }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
 
-    if (RegExp(r'\b(tutor|belajar|mengajar|materi|paham)\b')
-        .hasMatch(text.toLowerCase())) {
-      return 'Kalau yang kamu butuhkan adalah belajar atau konsultasi, coba '
-          'cari jasa tutor sesuai mata kuliahmu. Mata kuliah dan topik apa '
-          'yang ingin kamu pelajari?';
-    }
+      if (response.statusCode == 200 && body['success'] == true) {
+        final data = body['data'] as Map<String, dynamic>? ?? {};
+        final reply = (data['reply'] ?? '').toString().trim();
+        final rawServices =
+            (data['recommended_services'] as List<dynamic>?) ?? [];
 
-    return 'Boleh ceritakan lebih spesifik jasa yang kamu butuhkan? Misalnya '
-        'coding website, desain presentasi, atau bantuan olah data. Kamu juga '
-        'bisa menyebutkan kisaran budget agar aku bisa mengarahkan pilihan.';
+        final services = rawServices
+            .where((item) => item is Map<String, dynamic>)
+            .map((item) => _RecommendedService.fromJson(item as Map<String, dynamic>))
+            .toList();
+
+        if (!mounted) return;
+        setState(() {
+          _messages.add(
+            _ChatMessage(
+              text: reply.isNotEmpty
+                  ? reply
+                  : 'Berikut rekomendasi jasa yang tersedia untukmu:',
+              isAssistant: true,
+              services: services,
+            ),
+          );
+        });
+      } else {
+        final errMsg = (body['message'] ??
+                'Maaf, Asisten Jasa sedang sibuk. Coba kirim ulang pesanmu.')
+            .toString();
+        if (!mounted) return;
+        setState(() {
+          _messages.add(_ChatMessage(text: errMsg, isAssistant: true));
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+          _ChatMessage(text: 'Gagal terhubung ke server Asisten Jasa. Pastikan backend sedang berjalan lalu coba lagi.',
+            isAssistant: true,
+          ),
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _scrollToLatestMessage();
+      }
+    }
   }
 
   void _scrollToLatestMessage() {
@@ -135,6 +135,8 @@ class _AiRecommendationChatScreenState
 
   @override
   Widget build(BuildContext context) {
+    final itemCount = _messages.length + (_isLoading ? 1 : 0);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -190,14 +192,16 @@ class _AiRecommendationChatScreenState
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-              itemCount: _messages.length,
+              itemCount: itemCount,
               itemBuilder: (context, index) {
-                final message = _messages[index];
-                return _MessageBubble(message: message);
+                if (_isLoading && index == _messages.length) {
+                  return const _TypingBubble();
+                }
+                return _MessageBubble(message: _messages[index]);
               },
             ),
           ),
-          if (_messages.length == 1) _buildSuggestions(),
+          if (_messages.length == 1 && !_isLoading) _buildSuggestions(),
           _buildComposer(),
         ],
       ),
@@ -260,6 +264,7 @@ class _AiRecommendationChatScreenState
             Expanded(
               child: TextField(
                 controller: _messageController,
+                enabled: !_isLoading,
                 minLines: 1,
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
@@ -286,7 +291,7 @@ class _AiRecommendationChatScreenState
             ),
             const SizedBox(width: 8),
             IconButton.filled(
-              onPressed: _sendMessage,
+              onPressed: _isLoading ? null : _sendMessage,
               tooltip: 'Kirim pesan',
               style: IconButton.styleFrom(
                 backgroundColor: AppColors.primary,
@@ -297,6 +302,67 @@ class _AiRecommendationChatScreenState
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: const BoxDecoration(
+              color: Color(0xFFEAF2FF),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.auto_awesome,
+              color: AppColors.primary,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              border: Border.all(color: AppColors.border),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
+                bottomLeft: Radius.circular(4),
+                bottomRight: Radius.circular(16),
+              ),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Mencari jasa yang cocok...',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -365,7 +431,7 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (message.service case final service?) ...[
+                for (final service in message.services) ...[
                   const SizedBox(height: 8),
                   _ServiceSuggestionCard(service: service),
                 ],
@@ -464,12 +530,12 @@ class _ChatMessage {
   const _ChatMessage({
     required this.text,
     required this.isAssistant,
-    this.service,
+    this.services = const [],
   });
 
   final String text;
   final bool isAssistant;
-  final _RecommendedService? service;
+  final List<_RecommendedService> services;
 }
 
 class _RecommendedService {
@@ -488,4 +554,63 @@ class _RecommendedService {
   final String category;
   final IconData icon;
   final Color color;
+
+  factory _RecommendedService.fromJson(Map<String, dynamic> json) {
+    final category = (json['category'] ?? 'UMUM').toString();
+    final rawPrice = json['price'];
+    final numPrice =
+        rawPrice is num ? rawPrice.toInt() : int.tryParse('$rawPrice') ?? 0;
+
+    return _RecommendedService(
+      id: (json['id'] ?? '').toString(),
+      title: (json['title'] ?? 'Layanan Mahasiswa').toString(),
+      price: 'Mulai Rp${_formatRupiah(numPrice)}',
+      category: category,
+      icon: _iconForCategory(category),
+      color: _colorForCategory(category),
+    );
+  }
+
+  static String _formatRupiah(int amount) {
+    final str = amount.toString();
+    final buffer = StringBuffer();
+    for (int i = 0; i < str.length; i++) {
+      if (i > 0 && (str.length - i) % 3 == 0) {
+        buffer.write('.');
+      }
+      buffer.write(str[i]);
+    }
+    return buffer.toString();
+  }
+
+  static IconData _iconForCategory(String category) {
+    final lower = category.toLowerCase();
+    if (lower.contains('coding') || lower.contains('web') || lower.contains('it')) {
+      return Icons.code;
+    }
+    if (lower.contains('desain') || lower.contains('ppt') || lower.contains('grafis')) {
+      return Icons.palette_outlined;
+    }
+    if (lower.contains('data') || lower.contains('spss') || lower.contains('olah')) {
+      return Icons.insert_chart_outlined;
+    }
+    if (lower.contains('ketik') || lower.contains('tulis') || lower.contains('dokumen')) {
+      return Icons.description_outlined;
+    }
+    return Icons.work_outline;
+  }
+
+  static Color _colorForCategory(String category) {
+    final lower = category.toLowerCase();
+    if (lower.contains('coding') || lower.contains('web') || lower.contains('it')) {
+      return const Color(0xFFEEF5FF);
+    }
+    if (lower.contains('desain') || lower.contains('ppt') || lower.contains('grafis')) {
+      return const Color(0xFFFFF3C4);
+    }
+    if (lower.contains('data') || lower.contains('spss') || lower.contains('olah')) {
+      return const Color(0xFFDCFCE7);
+    }
+    return const Color(0xFFF3E8FF);
+  }
 }
