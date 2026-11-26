@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/routes/route_names.dart';
@@ -353,8 +354,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
             height: 48,
             width: double.infinity,
             child: ElevatedButton(
-              onPressed:
-                  _isSubmitting ? null : () => _startOrOpenPayment(order),
+              onPressed: _proofSubmitted
+                  ? () => context.go(Routes.beranda)
+                  : _isSubmitting
+                      ? null
+                      : () => _startOrOpenPayment(order),
               child: _isSubmitting
                   ? const SizedBox(
                       width: 22,
@@ -365,9 +369,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       ),
                     )
                   : Text(
-                      _orderId == null
-                          ? 'Lanjut ke Pembayaran Midtrans'
-                          : 'Buka Kembali Midtrans',
+                      _proofSubmitted
+                          ? 'Kembali ke Beranda'
+                          : _orderId == null
+                              ? 'Lanjut ke Pembayaran Midtrans'
+                              : 'Buka Kembali Midtrans',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
             ),
